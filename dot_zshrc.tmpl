@@ -1,0 +1,35 @@
+# ── 基础设置 ──────────────────────────────────────
+export EDITOR="nvim"
+export LANG="en_US.UTF-8"
+export HISTSIZE=10000
+export HISTFILE="$HOME/.zsh_history"
+setopt HIST_IGNORE_DUPS SHARE_HISTORY
+
+# ── 平台专属 PATH ─────────────────────────────────
+{{- if eq .chezmoi.os "darwin" }}
+eval "$(/opt/homebrew/bin/brew shellenv)"
+
+{{- else if eq .chezmoi.os "linux" }}
+export PATH="$HOME/.local/bin:$PATH"
+
+{{- if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+# WSL2 专属：用 Windows 浏览器打开链接
+export BROWSER="wslview"
+{{- end }}
+
+{{- end }}
+
+# ── mise（语言版本管理）───────────────────────────
+eval "$(mise activate zsh)"
+
+# ── 常用别名 ──────────────────────────────────────
+alias ll="ls -la"
+alias gs="git status"
+alias gc="git commit"
+alias gp="git push"
+alias vi="nvim"
+alias cat="bat"
+alias find="fd"
+
+# ── fzf ───────────────────────────────────────────
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh

@@ -1,0 +1,90 @@
+#!/bin/bash
+# 切换国内软件源（在安装任何软件之前执行）
+# 默认使用清华源，可按需修改为其他镜像
+
+{{- if eq .chezmoi.os "linux" }}
+
+MIRROR_TUNA="https://mirrors.tuna.tsinghua.edu.cn"
+MIRROR_ALIYUN="https://mirrors.aliyun.com"
+
+# ── 检测发行版 ────────────────────────────────────
+if command -v pacman &>/dev/null; then
+  # ── Arch 系 ───────────────────────────────────────
+  echo ">>> 切换 Arch 软件源为清华源..."
+
+  # 备份原始镜像列表
+  sudo cp /etc/pacman.d/mirrorlist /etc/pacman.d/mirrorlist.bak
+
+  # 写入清华源（放在最前面，优先使用）
+  sudo tee /etc/pacman.d/mirrorlist > /dev/null << EOF
+# 清华大学
+Server = ${MIRROR_TUNA}/archlinux/\$repo/os/\$arch
+# 阿里云
+Server = ${MIRROR_ALIYUN}/archlinux/\$repo/os/\$arch
+# 中科大
+Server = https://mirrors.ustc.edu.cn/archlinux/\$repo/os/\$arch
+EOF
+
+  # 添加 archlinuxcn 源（AUR 常用依赖）
+  if ! grep -q "archlinuxcn" /etc/pacman.conf; then
+    sudo tee -a /etc/pacman.conf > /dev/null << EOF
+
+[archlinuxcn]
+Server = ${MIRROR_TUNA}/archlinuxcn/\$arch
+EOF
+    sudo pacman -Sy --noconfirm archlinuxcn-keyring
+  fi
+
+  sudo pacman -Sy
+  echo ">>> Arch 软件源切换完成 ✅"
+
+elif command -v apt-get &>/dev/null; then
+  # ── Debian / Ubuntu / WSL2 ────────────────────────
+  echo ">>> 切换 apt 软件源为清华源..."
+
+  # 检测系统版本
+  . /etc/os-release
+  DISTRO=$ID
+  CODENAME=$VERSION_CODENAME
+
+  # 备份原始源
+  sudo cp /etc/apt/sources.list /etc/apt/sources.list.bak
+
+  case $DISTRO in
+    ubuntu)
+      sudo tee /etc/apt/sources.list > /dev/null << EOF
+deb ${MIRROR_TUNA}/ubuntu/ ${CODENAME} main restricted universe multiverse
+deb ${MIRROR_TUNA}/ubuntu/ ${CODENAME}-updates main restricted universe multiverse
+deb ${MIRROR_TUNA}/ubuntu/ ${CODENAME}-backports main restricted universe multiverse
+deb ${MIRROR_TUNA}/ubuntu/ ${CODENAME}-security main restricted universe multiverse
+EOF
+      ;;
+    debian)
+      sudo tee /etc/apt/sources.list > /dev/null << EOF
+deb ${MIRROR_TUNA}/debian/ ${CODENAME} main contrib non-free non-free-firmware
+deb ${MIRROR_TUNA}/debian/ ${CODENAME}-updates main contrib non-free non-free-firmware
+deb ${MIRROR_TUNA}/debian/ ${CODENAME}-backports main contrib non-free non-free-firmware
+deb ${MIRROR_TUNA}/debian-security ${CODENAME}-security main contrib non-free non-free-firmware
+EOF
+      ;;
+    *)
+      echo "⚠️  未识别的 Debian 系发行版：$DISTRO，跳过换源"
+      ;;
+  esac
+
+  sudo apt-get update -q
+  echo ">>> apt 软件源切换完成 ✅"
+
+elif command -v dnf &>/dev/null; then
+  # ── Fedora ────────────────────────────────────────
+  echo ">>> 切换 dnf 软件源为清华源..."
+  sudo sed -i \
+    -e 's|https://download.example/pub/fedora/linux|'"${MIRROR_TUNA}"'/fedora-linux|g' \
+    /etc/yum.repos.d/fedora.repo \
+    /etc/yum.repos.d/fedora-updates.repo 2>/dev/null || true
+  sudo dnf makecache
+  echo ">>> dnf 软件源切换完成 ✅"
+
+fi
+
+{{- end }}

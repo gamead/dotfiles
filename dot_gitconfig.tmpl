@@ -1,0 +1,26 @@
+[user]
+  name  = {{ .name }}
+  email = {{ .email }}
+
+[core]
+  editor   = nvim
+  autocrlf = input
+
+[pull]
+  rebase = true
+
+[alias]
+  lg = log --oneline --graph --decorate --all
+  st = status
+  co = checkout
+
+[init]
+  defaultBranch = main
+
+{{- if eq .chezmoi.os "darwin" }}
+[credential]
+  helper = osxkeychain
+{{- else if eq .chezmoi.os "linux" }}
+[credential]
+  helper = store
+{{- end }}

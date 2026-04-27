@@ -1,0 +1,74 @@
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  日常只需维护这一个文件
+#  新增软件 → 加一行 → push → chezmoi update
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ── CLI 工具（所有平台共用）──────────────────────
+cli:
+  - neovim
+  - tmux
+  - fzf
+  - ripgrep
+  - bat
+  - git
+  - zsh
+  - curl
+  - fd
+
+# ── GUI 软件 ──────────────────────────────────────
+gui:
+  # 所有平台都安装
+  common:
+    - vscode
+    - docker
+
+  # 仅 macOS
+  darwin:
+    - iterm2
+    - raycast
+    - rectangle
+
+  # 仅 Arch 系
+  arch:
+    - timeshift
+
+  # 仅 Debian / Ubuntu
+  debian: []
+
+  # Windows 侧额外软件（通过 winget 安装）
+  windows:
+    - wezterm
+
+# ── WSL2 下每个软件的安装位置 ────────────────────
+# windows → 通过 winget 装到 Windows 侧
+# wsl     → 装在 WSL2 内部（按发行版走对应逻辑）
+# skip    → WSL2 下跳过（如桌面专属工具）
+# 未声明  → 默认装 WSL2 内部
+wsl_install:
+  vscode:    windows
+  wezterm:   windows
+  docker:    wsl
+  timeshift: skip
+
+# ── 各平台包名映射 ────────────────────────────────
+# __official_script__ = 需要添加官方源，脚本里单独处理
+gui_packages:
+  darwin:
+    vscode:    visual-studio-code
+    docker:    docker
+    iterm2:    iterm2
+    raycast:   raycast
+    rectangle: rectangle
+
+  arch:
+    vscode:    visual-studio-code-bin   # AUR
+    docker:    docker
+    timeshift: timeshift                # AUR
+
+  debian:
+    vscode:    __official_script__
+    docker:    __official_script__
+
+  winget:
+    vscode:    Microsoft.VisualStudioCode
+    wezterm:   wez.wezterm

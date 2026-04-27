@@ -1,0 +1,57 @@
+#!/bin/bash
+set -e
+echo ">>> 安装基础 CLI 工具..."
+
+PACKAGES="{{ range .packages.cli }}{{ . }} {{ end }}"
+
+{{- if eq .chezmoi.os "darwin" }}
+# ── macOS ─────────────────────────────────────────
+if ! command -v brew &>/dev/null; then
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+brew install $PACKAGES
+
+{{- else if eq .chezmoi.os "linux" }}
+# ── Linux：自动检测发行版 ─────────────────────────
+if command -v pacman &>/dev/null; then
+  # Arch / Manjaro / EndeavourOS 等
+  # 先安装 yay（AUR helper）
+  if ! command -v yay &>/dev/null; then
+    sudo pacman -Sy --noconfirm git base-devel
+    git clone https://aur.archlinux.org/yay.git /tmp/yay
+    (cd /tmp/yay && makepkg -si --noconfirm)
+    rm -rf /tmp/yay
+  fi
+  yay -Sy --noconfirm $PACKAGES
+
+elif command -v apt-get &>/dev/null; then
+  # Debian / Ubuntu / WSL2
+  # fd 叫 fd-find，bat 部分版本叫 batcat，替换后安装
+  DEBIAN_PKGS="{{ range .packages.cli }}{{ if eq . "fd" }}fd-find{{ else }}{{ . }}{{ end }} {{ end }}"
+  sudo apt-get update -q
+  sudo apt-get install -y $DEBIAN_PKGS
+  # 建立软链接，统一命令名
+  mkdir -p ~/.local/bin
+  command -v fdfind &>/dev/null && ln -sf "$(which fdfind)" ~/.local/bin/fd   || true
+  command -v batcat &>/dev/null && ln -sf "$(which batcat)" ~/.local/bin/bat  || true
+
+elif command -v dnf &>/dev/null; then
+  sudo dnf install -y $PACKAGES
+
+elif command -v zypper &>/dev/null; then
+  sudo zypper install -y $PACKAGES
+
+elif command -v apk &>/dev/null; then
+  sudo apk add --no-cache $PACKAGES
+
+else
+  echo "⚠️  未识别的发行版，请手动安装: $PACKAGES"
+fi
+{{- end }}
+
+# ── mise：跨平台语言版本管理（所有平台通用）──────
+if ! command -v mise &>/dev/null; then
+  curl https://mise.run | sh
+fi
+
+echo ">>> CLI 工具安装完成 ✅"

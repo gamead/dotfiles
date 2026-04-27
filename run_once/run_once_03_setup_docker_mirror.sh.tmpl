@@ -1,0 +1,46 @@
+#!/bin/bash
+# 配置 Docker 国内镜像加速
+# 仅在 Linux 上执行（macOS Docker Desktop 在 GUI 里配置）
+
+{{- if eq .chezmoi.os "linux" }}
+{{- if not (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+
+# WSL2 跳过，Docker 装在 Windows 侧
+echo ">>> 配置 Docker 国内镜像加速..."
+
+# 确保 Docker 已安装
+if ! command -v docker &>/dev/null; then
+  echo "⚠️  Docker 未安装，跳过镜像配置"
+  exit 0
+fi
+
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+{
+  "registry-mirrors": [
+    "https://mirrors.tuna.tsinghua.edu.cn",
+    "https://hub-mirror.c.163.com",
+    "https://mirror.baidubce.com",
+    "https://ccr.ccs.tencentyun.com"
+  ],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+
+# 重启 Docker 服务使配置生效
+if systemctl is-active --quiet docker; then
+  sudo systemctl daemon-reload
+  sudo systemctl restart docker
+  echo ">>> Docker 镜像加速配置完成 ✅"
+else
+  echo "ℹ️  Docker 服务未运行，配置已写入，启动 Docker 后自动生效"
+fi
+
+{{- else }}
+echo "WSL2 环境，Docker 镜像加速请在 Docker Desktop 的 Settings → Docker Engine 中配置"
+{{- end }}
+{{- end }}
