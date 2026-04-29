@@ -1,0 +1,80 @@
+#!/bin/bash
+# packages.yaml hash: {{ include ".chezmoidata/packages.yaml" | sha256sum }}
+
+set -euo pipefail
+
+# ── 日志配置 ───────────────────────────────────────
+LOG_FILE="$HOME/.chezmoi_install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=================================================="
+echo "开始执行 GUI 安装脚本: $(date)"
+echo "=================================================="
+
+{{ $os := .chezmoi.os -}}
+{{ $is_wsl := (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+
+echo ">>> 正在同步 GUI 软件 (数据驱动模式)..."
+
+
+{{- range $app_name, $platforms := .gui_apps }}
+  
+  # --- 1. 确定目标平台和安装包 ---
+  {{- $target_platform := "" -}}
+  {{- $distro := "" -}}
+  {{- $distro_like := "" -}}
+  {{- if hasKey $.chezmoi "osRelease" -}}
+    {{- $distro = $.chezmoi.osRelease.id -}}
+    {{- if hasKey $.chezmoi.osRelease "idLike" -}}
+      {{- $distro_like = $.chezmoi.osRelease.idLike -}}
+    {{- end -}}
+  {{- end -}}
+  
+  {{- if $is_wsl }}
+    {{- /* WSL2 逻辑：优先尝试 Windows 侧安装 (winget)，否则回退到 linux 本地 */ -}}
+    {{- if index $platforms "winget" -}}{{- $target_platform = "winget" -}}
+    {{- else if or (eq $distro "debian") (eq $distro "ubuntu") -}}{{- $target_platform = "debian" -}}
+    {{- end }}
+  {{- else if eq $os "darwin" }}
+    {{- if index $platforms "darwin" -}}{{- $target_platform = "darwin" -}}
+    {{- end }}
+  {{- else if eq $os "linux" }}
+    {{- /* 智能匹配发行版系 */ -}}
+    {{- if or (eq $distro "arch") (contains "arch" $distro_like) }}{{ if index $platforms "arch" }}{{ $target_platform = "arch" }}{{ end }}
+    {{- else if or (eq $distro "debian") (eq $distro "ubuntu") (contains "debian" $distro_like) }}{{ if index $platforms "debian" }}{{ $target_platform = "debian" }}{{ end }}
+    {{- end }}
+  {{- end }}
+
+  # --- 2. 执行安装逻辑 ---
+  {{- if $target_platform }}
+    {{- $cmd := index $.install_commands $target_platform }}
+    {{- $pkg := index $platforms $target_platform }}
+    
+    echo "[{{ $app_name }}] 检测到适用平台: {{ $target_platform }}..."
+    
+    {{- if eq $target_platform "winget" }}
+    # 检查 Windows 侧是否已安装（避免重复弹出 UAC）
+    if ! powershell.exe -Command "winget list --id {{ $pkg }}" &>/dev/null; then
+      echo "正在通过 Winget 安装 {{ $app_name }}..."
+      powershell.exe -Command "{{ $cmd }} {{ $pkg }}"
+    else
+      echo "{{ $app_name }} 已在 Windows 侧安装，跳过。"
+    fi
+
+    {{- else if eq $target_platform "arch" }}
+    if ! command -v yay &>/dev/null; then
+      echo "警告: 未找到 yay，跳过 {{ $app_name }} 的安装。"
+    else
+      {{ $cmd }} {{ $pkg }}
+    fi
+
+    {{- else }}
+    {{ $cmd }} {{ $pkg }}
+    {{- end }}
+
+  {{- else }}
+    # echo "信息: {{ $app_name }} 在当前系统环境下无定义，跳过。"
+  {{- end }}
+
+{{- end }}
+
+echo ">>> GUI 软件同步完成 ✅"

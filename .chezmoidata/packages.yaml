@@ -1,74 +1,54 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  日常只需维护这一个文件
-#  新增软件 → 加一行 → push → chezmoi update
+#  数据驱动的包管理配置
+#  修改此文件将自动触发 chezmoi 重新运行对应的安装脚本
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# ── CLI 工具（所有平台共用）──────────────────────
+# ── 1. 基础系统工具（通过 apt/pacman/brew 安装）────────
 cli:
-  - neovim
-  - tmux
-  - fzf
-  - ripgrep
-  - bat
   - git
   - zsh
   - curl
-  - fd
+  - ca-certificates
+  - open-vm-tools          # VMware 增强工具
+  - virtualbox-guest-utils # VirtualBox 增强工具
 
-# ── GUI 软件 ──────────────────────────────────────
-gui:
-  # 所有平台都安装
-  common:
-    - vscode
-    - docker
+# ── 2. 安装指令定义 ──────────────────────────────────
+# 定义不同平台/包管理器的安装前缀
+install_commands:
+  darwin: "brew install --cask"
+  arch: "yay -S --needed --noconfirm"
+  debian: "sudo apt-get install -y"
+  winget: "winget install --silent --accept-source-agreements --accept-package-agreements"
 
-  # 仅 macOS
-  darwin:
-    - iterm2
-    - raycast
-    - rectangle
-
-  # 仅 Arch 系
-  arch:
-    - timeshift
-
-  # 仅 Debian / Ubuntu
-  debian: []
-
-  # Windows 侧额外软件（通过 winget 安装）
-  windows:
-    - wezterm
-
-# ── WSL2 下每个软件的安装位置 ────────────────────
-# windows → 通过 winget 装到 Windows 侧
-# wsl     → 装在 WSL2 内部（按发行版走对应逻辑）
-# skip    → WSL2 下跳过（如桌面专属工具）
-# 未声明  → 默认装 WSL2 内部
-wsl_install:
-  vscode:    windows
-  wezterm:   windows
-  docker:    wsl
-  timeshift: skip
-
-# ── 各平台包名映射 ────────────────────────────────
-# __official_script__ = 需要添加官方源，脚本里单独处理
-gui_packages:
-  darwin:
-    vscode:    visual-studio-code
-    docker:    docker
-    iterm2:    iterm2
-    raycast:   raycast
-    rectangle: rectangle
-
-  arch:
-    vscode:    visual-studio-code-bin   # AUR
-    docker:    docker
-    timeshift: timeshift                # AUR
-
-  debian:
-    vscode:    __official_script__
-    docker:    __official_script__
-
-  winget:
-    vscode:    Microsoft.VisualStudioCode
-    wezterm:   wez.wezterm
+# ── 3. GUI 软件清单及平台映射 ───────────────────────
+# key: 逻辑名称
+# value: 各平台对应的真实包名
+gui_apps:
+  # --- 输入法组件 (仅在 Linux 桌面有效) ---
+  fcitx5:
+    arch: fcitx5 fcitx5-chinese-addons fcitx5-configtool fcitx5-gtk fcitx5-qt
+    debian: fcitx5 fcitx5-chinese-addons fcitx5-config-qt fcitx5-frontend-gtk3 fcitx5-frontend-qt5
+  
+  # --- 常用软件 ---
+  vscode:
+    darwin: visual-studio-code
+    arch: visual-studio-code-bin
+    debian: code
+    winget: Microsoft.VisualStudioCode
+  docker:
+    darwin: docker
+    arch: docker
+    debian: docker-ce
+    winget: Docker.DockerDesktop
+  wezterm:
+    darwin: wezterm
+    arch: wezterm
+    winget: wez.wezterm
+  raycast:
+    darwin: raycast
+  rectangle:
+    darwin: rectangle
+  iterm2:
+    darwin: iterm2
+  timeshift:
+    arch: timeshift

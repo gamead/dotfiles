@@ -1,0 +1,46 @@
+# ── 基础设置 ──────────────────────────────────────
+export EDITOR="nvim"
+export LANG="en_US.UTF-8"
+
+# 历史记录配置
+export HISTSIZE=10000
+export HISTFILESIZE=10000
+export HISTCONTROL=ignoredups:erasedups:ignorespace
+
+# ── 平台专属 PATH & 环境 ──────────────────────────
+{{- if eq .chezmoi.os "darwin" }}
+if [ -f /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
+{{- else if eq .chezmoi.os "linux" }}
+export PATH="$HOME/.local/bin:$PATH"
+
+{{- if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+# WSL2 专属
+export BROWSER="wslview"
+{{- end }}
+{{- end }}
+
+# ── 常用别名 ──────────────────────────────────────
+alias ll="ls -la"
+alias l="ls -lh"
+alias gs="git status"
+alias gc="git commit"
+alias gp="git push"
+alias vi="nvim"
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias mkdir="mkdir -p"
+
+# ── 外部工具集成 ──────────────────────────────────
+# 1. mise (语言管理)
+if command -v mise &> /dev/null; then
+  eval "$(mise activate bash)"
+fi
+
+# 2. starship (提示符)
+if command -v starship &> /dev/null; then
+  eval "$(starship init bash)"
+fi

@@ -1,11 +1,21 @@
 # ── 基础设置 ──────────────────────────────────────
 export EDITOR="nvim"
 export LANG="en_US.UTF-8"
-export HISTSIZE=10000
-export HISTFILE="$HOME/.zsh_history"
-setopt HIST_IGNORE_DUPS SHARE_HISTORY
 
-# ── 平台专属 PATH ─────────────────────────────────
+# 历史记录配置
+export HISTSIZE=10000
+export SAVEHIST=10000
+export HISTFILE="$HOME/.zsh_history"
+
+# Zsh 行为选项
+setopt HIST_IGNORE_DUPS     # 不记录重复命令
+setopt SHARE_HISTORY        # 多个终端会话共享历史
+setopt HIST_EXPIRE_DUPS_FIRST # 历史达到上限时先删除重复
+setopt HIST_IGNORE_SPACE    # 以空格开头的命令不记入历史
+setopt AUTO_CD              # 输入路径直接跳转
+setopt INTERACTIVE_COMMENTS # 允许在交互式 shell 中使用注释
+
+# ── 平台专属 PATH & 环境 ──────────────────────────
 {{- if eq .chezmoi.os "darwin" }}
 eval "$(/opt/homebrew/bin/brew shellenv)"
 
@@ -15,21 +25,57 @@ export PATH="$HOME/.local/bin:$PATH"
 {{- if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 # WSL2 专属：用 Windows 浏览器打开链接
 export BROWSER="wslview"
+{{- else }}
+# 原生 Linux 桌面环境：输入法相关环境变量已移至 ~/.config/environment.d/fcitx5.conf
 {{- end }}
 
 {{- end }}
 
-# ── mise（语言版本管理）───────────────────────────
-eval "$(mise activate zsh)"
+# ── 补全系统初始化 (带性能优化) ───────────────────
+# 开启 Zsh 强大的补全功能，并使用缓存提升启动速度
+autoload -Uz compinit
+# 检查 zcompdump 缓存文件如果超过一天未更新，则重新生成，否则直接使用缓存
+if [[ -n ${ZDOTDIR:-$HOME}/.zcompdump(#qN.mh+24) ]]; then
+  compinit
+else
+  compinit -C
+fi
+
+# 补全菜单样式优化
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*' 'l:|=* r:|=*'
+zstyle ':completion:*:descriptions' format '%F{green}-- %d --%f'
+zstyle ':completion:*:targets' list-colors '=(#b)(*)=0=01;31'
 
 # ── 常用别名 ──────────────────────────────────────
 alias ll="ls -la"
+alias l="ls -lh"
 alias gs="git status"
 alias gc="git commit"
 alias gp="git push"
 alias vi="nvim"
 alias cat="bat"
 alias find="fd"
+alias grep="grep --color=auto"
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias mkdir="mkdir -p"
 
-# ── fzf ───────────────────────────────────────────
+# ── 外部工具集成 ──────────────────────────────────
+# 1. mise (语言管理)
+export PATH="$HOME/.local/share/mise/shims:$PATH"
+
+# 2. fzf (模糊搜索)
 [ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+# 3. starship (提示符)
+eval "$(starship init zsh)"
+
+# ── Zsh 插件 (必须放在最后，尤其是高亮) ────────────
+# 1. 自动建议
+[ -f ~/.zsh_custom/zsh-autosuggestions/zsh-autosuggestions.zsh ] && source ~/.zsh_custom/zsh-autosuggestions/zsh-autosuggestions.zsh
+export ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="fg=244"
+
+# 2. 语法高亮 (必须是最后一个加载的插件)
+[ -f ~/.zsh_custom/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] && source ~/.zsh_custom/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh

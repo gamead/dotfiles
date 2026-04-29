@@ -2,6 +2,15 @@
 # 配置 Docker 国内镜像加速
 # 仅在 Linux 上执行（macOS Docker Desktop 在 GUI 里配置）
 
+set -euo pipefail
+
+# ── 日志配置 ───────────────────────────────────────
+LOG_FILE="$HOME/.chezmoi_install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=================================================="
+echo "开始执行 Docker 镜像配置脚本: $(date)"
+echo "=================================================="
+
 {{- if eq .chezmoi.os "linux" }}
 {{- if not (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
 

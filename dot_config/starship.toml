@@ -1,0 +1,26 @@
+# ── 基础设置 ──────────────────────────────────────
+add_newline = false
+
+# ── 格式定制 ──────────────────────────────────────
+format = """
+$directory\
+$git_branch\
+$git_status\
+$character\
+"""
+
+[directory]
+style = "bold cyan"
+truncate_to_repo = true
+truncation_length = 3
+
+[character]
+success_symbol = "[➜](bold green)"
+error_symbol = "[➜](bold red)"
+
+[git_branch]
+symbol = " "
+style = "bold purple"
+
+[git_status]
+style = "bold red"

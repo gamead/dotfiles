@@ -1,7 +1,15 @@
 [tools]
-node   = "lts"
-python = "3.12"
-go     = "latest"
+node    = "lts"
+python  = "3.12"
+go      = "latest"
+neovim  = "latest"
+tmux    = "latest"
+fzf     = "latest"
+ripgrep = "latest"
+bat     = "latest"
+fd      = "latest"
+usage   = "latest"
+starship = "latest"
 
 [settings]
 experimental = true

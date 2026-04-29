@@ -1,0 +1,78 @@
+#!/bin/bash
+# packages.yaml hash: {{ include ".chezmoidata/packages.yaml" | sha256sum }}
+# mise config hash: {{ include "dot_config/mise/config.toml" | sha256sum }}
+
+set -euo pipefail
+
+# ── 日志配置 ───────────────────────────────────────
+LOG_FILE="$HOME/.chezmoi_install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=================================================="
+echo "开始执行 CLI 安装脚本: $(date)"
+echo "=================================================="
+
+echo ">>> 1. 安装系统基础包 (apt/pacman/etc.)..."
+PACKAGES="{{ range .cli }}{{ . }} {{ end }}"
+
+{{- if eq .chezmoi.os "darwin" }}
+if ! command -v brew &>/dev/null; then
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+brew install $PACKAGES
+
+{{- else if eq .chezmoi.os "linux" }}
+if command -v pacman &>/dev/null; then
+  # Arch 系统：先安装基础依赖和 yay
+  sudo pacman -Sy --needed --noconfirm base-devel git
+  if ! command -v yay &>/dev/null; then
+    echo "正在安装 yay (AUR helper)..."
+    rm -rf /tmp/yay # 确保中断重试时目录干净
+    git clone https://aur.archlinux.org/yay.git /tmp/yay
+    (cd /tmp/yay && makepkg -si --noconfirm)
+    rm -rf /tmp/yay
+  fi
+  yay -Sy --needed --noconfirm $PACKAGES
+elif command -v apt-get &>/dev/null; then
+  # 仅在需要时更新 apt
+  [ -z "$(find /var/lib/apt/lists -mmin -60 2>/dev/null)" ] && sudo apt-get update -q || true
+  sudo apt-get install -y $PACKAGES
+fi
+{{- end }}
+
+echo ">>> 2. 确保 mise 已安装..."
+if ! command -v mise &>/dev/null; then
+  curl https://mise.run | sh
+fi
+
+echo ">>> 3. 使用 mise 安装开发工具及常用 CLI..."
+# 这里的 export 是为了确保后续命令能找到刚装好的 mise
+export PATH="$HOME/.local/bin:$PATH"
+eval "$(mise activate bash)"
+mise install -y
+
+echo ">>> 4. 配置 Zsh 必备插件..."
+ZSH_CUSTOM_DIR="$HOME/.zsh_custom"
+mkdir -p "$ZSH_CUSTOM_DIR"
+
+# 定义插件列表
+plugins=(
+  "zsh-users/zsh-autosuggestions"
+  "zsh-users/zsh-syntax-highlighting"
+)
+
+for repo in "${plugins[@]}"; do
+  plugin_name=$(basename "$repo")
+  plugin_path="$ZSH_CUSTOM_DIR/$plugin_name"
+  
+  # 检查目录是否存在且是否为一个完整的 git 仓库（防止克隆中断）
+  if [ -d "$plugin_path" ] && [ -d "$plugin_path/.git" ]; then
+    echo "$plugin_name 已存在，尝试更新..."
+    (cd "$plugin_path" && git pull -q || true) # 即使离线更新失败也不阻断脚本
+  else
+    echo "正在下载/修复 $plugin_name..."
+    rm -rf "$plugin_path" # 强制清理可能的残缺目录
+    git clone --depth 1 "https://github.com/$repo" "$plugin_path"
+  fi
+done
+
+echo ">>> 所有工具安装/更新完成 ✅"

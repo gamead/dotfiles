@@ -1,0 +1,33 @@
+#!/bin/bash
+# 这个文件名前缀有 "after"，确保它在其他基础工具安装完毕后执行
+# tmux.conf hash: {{ include "dot_config/tmux/tmux.conf" | sha256sum }}
+
+set -euo pipefail
+
+# ── 日志配置 ───────────────────────────────────────
+LOG_FILE="$HOME/.chezmoi_install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=================================================="
+echo "开始执行 Tmux 插件同步脚本: $(date)"
+echo "=================================================="
+
+# 这是一个自动触发脚本，只要 tmux.conf 的内容发生变化
+# Chezmoi 就会自动执行这个脚本，从而触发 TPM 的插件安装，无需手动按 <prefix> I
+
+echo ">>> 检查 Tmux 插件状态..."
+
+if [ -f "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then
+    echo "正在自动同步 Tmux 插件..."
+    
+    # 以后台运行或非交互模式执行安装，避免卡住终端
+    bash "$HOME/.tmux/plugins/tpm/bin/install_plugins" > /dev/null 2>&1
+    
+    # 如果 Tmux 当前正在运行，则刷新配置以加载新插件
+    if command -v tmux &>/dev/null && tmux info &>/dev/null; then
+        tmux source-file "$HOME/.config/tmux/tmux.conf" &>/dev/null
+        echo "已热重载 Tmux 配置。"
+    fi
+    echo ">>> Tmux 插件同步完成 ✅"
+else
+    echo "ℹ️  未检测到 TPM，它将在首次打开 Tmux 时自动克隆。"
+fi
