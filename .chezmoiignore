@@ -1,0 +1,3 @@
+# 忽略无关文件
+# .chezmoiignore 中的文件不会被应用到家目录
+README.md

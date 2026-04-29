@@ -17,10 +17,13 @@
 [init]
   defaultBranch = main
 
-{{- if eq .chezmoi.os "darwin" }}
 [credential]
+{{- if (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+  helper = /mnt/c/Program\\ Files/Git/mingw64/bin/git-credential-manager.exe
+{{- else if eq .chezmoi.os "darwin" }}
   helper = osxkeychain
 {{- else if eq .chezmoi.os "linux" }}
-[credential]
-  helper = store
+  # 优先尝试使用 github cli 作为凭证管理器
+  # 如果没有安装 gh，则回退到 1 小时缓存
+  helper = "!f() { test -x \"$(command -v gh)\" && gh auth git-credential \"$@\" || git credential-cache --timeout=3600 \"$@\"; }; f"
 {{- end }}

@@ -1,0 +1,90 @@
+#!/bin/bash
+# packages.yaml hash: {{ include ".chezmoidata/packages.yaml" | sha256sum }}
+# mise config hash: {{ include "dot_config/mise/config.toml" | sha256sum }}
+
+set -euo pipefail
+
+# ── 日志配置 ───────────────────────────────────────
+LOG_FILE="$HOME/.chezmoi_install.log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+echo "=================================================="
+echo "开始执行 CLI 安装脚本: $(date)"
+echo "=================================================="
+
+{{ $os := .chezmoi.os -}}
+{{ $distro := "" -}}
+{{- if hasKey .chezmoi "osRelease" -}}
+  {{- $distro = .chezmoi.osRelease.id -}}
+{{- end -}}
+
+# ── 1. 动态生成包列表 ──────────────────────────────
+PACKAGES=""
+{{- range $name, $platforms := .cli }}
+  {{- $pkg := "" -}}
+  {{- if index $platforms $os }}{{ $pkg = index $platforms $os }}
+  {{- else if index $platforms $distro }}{{ $pkg = index $platforms $distro }}
+  {{- else if index $platforms "common" }}{{ $pkg = index $platforms "common" }}
+  {{- end }}
+  {{- if $pkg }}
+PACKAGES="$PACKAGES {{ $pkg }}"
+  {{- end }}
+{{- end }}
+
+echo ">>> 1. 安装系统基础包: $PACKAGES"
+
+{{- if eq $os "darwin" }}
+if ! command -v brew &>/dev/null; then
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+fi
+brew install $PACKAGES
+
+{{- else if eq $os "linux" }}
+if command -v pacman &>/dev/null; then
+  # Arch 系统
+  sudo pacman -Sy --needed --noconfirm base-devel git
+  if ! command -v yay &>/dev/null; then
+    echo "正在安装 yay (AUR helper)..."
+    rm -rf /tmp/yay
+    git clone https://aur.archlinux.org/yay.git /tmp/yay
+    (cd /tmp/yay && makepkg -si --noconfirm)
+    rm -rf /tmp/yay
+  fi
+  yay -Sy --needed --noconfirm $PACKAGES
+elif command -v apt-get &>/dev/null; then
+  # Debian/Ubuntu 系统
+  [ -z "$(find /var/lib/apt/lists -mmin -60 2>/dev/null)" ] && sudo apt-get update -q || true
+  sudo apt-get install -y $PACKAGES
+fi
+{{- end }}
+
+echo ">>> 2. 确保 mise 已安装..."
+if ! command -v mise &>/dev/null; then
+  curl https://mise.run | sh
+fi
+
+echo ">>> 3. 使用 mise 安装开发工具及常用 CLI..."
+export PATH="$HOME/.local/bin:$PATH"
+eval "$(mise hook-env -s bash)"
+mise install -y
+
+echo ">>> 4. 配置 Zsh 必备插件..."
+ZSH_CUSTOM_DIR="$HOME/.zsh_custom"
+mkdir -p "$ZSH_CUSTOM_DIR"
+
+plugins=(
+  "zsh-users/zsh-autosuggestions"
+  "zsh-users/zsh-syntax-highlighting"
+)
+
+for repo in "${plugins[@]}"; do
+  plugin_name=$(basename "$repo")
+  plugin_path="$ZSH_CUSTOM_DIR/$plugin_name"
+  if [ -d "$plugin_path" ] && [ -d "$plugin_path/.git" ]; then
+    (cd "$plugin_path" && git pull -q || true)
+  else
+    rm -rf "$plugin_path"
+    git clone --depth 1 "https://github.com/$repo" "$plugin_path"
+  fi
+done
+
+echo ">>> 所有工具安装/更新完成 ✅"
