@@ -1,6 +1,6 @@
 # dotfiles
 
-基于 [Chezmoi](https://chezmoi.io) 管理的跨平台开发环境。
+基于 [Chezmoi](https://chezmoi.io) 构建的跨平台个人开发环境管理系统。通过声明式配置和自动化脚本，实现系统环境的快速克隆与同步。
 
 ## 初始化
 cd dotfiles
@@ -10,78 +10,91 @@ git commit -m "init"
 git remote add origin https://github.com/你/dotfiles.git
 git push -u origin main
 
-## 在新机器上部署（一条命令）
+## 🚀 快速开始
+
+在全新机器上，仅需执行以下命令即可一键完成环境初始化：
 
 ```bash
 sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply https://github.com/你的用户名/dotfiles
 ```
 
-执行后会自动：
-1. 询问姓名、邮箱
-2. 链接所有配置文件
-3. 安装 CLI 工具 + 语言环境
-4. 安装 GUI 应用（包含 GNOME 托盘支持）
+### 初始化流程
+1. **引导配置**: 执行时会触发 `chezmoi` 初始化，自动提示输入个人信息（姓名、邮箱）。
+2. **系统适配**: 脚本自动检测当前发行版（Arch, Debian/Ubuntu, Fedora 等）。
+3. **镜像加速**: 自动并行测速并配置最快的软件源（清华/阿里/中科大）。
+4. **环境构建**: 安装基础 CLI 工具、配置 Shell 环境、部署输入法及开发环境工具。
 
-> **💡 提示**：安装过程的详细日志会保存在 `~/.chezmoi_install.log` 文件中。如果遇到报错或卡顿，可以查看此文件排查问题。
+> **💡 提示**: 安装过程中的详细日志记录于 `~/.chezmoi_install.log`。若部署过程中出现环境冲突或失败，请首先查阅此文件。
 
-## 添加软件
+## 📦 包管理配置说明 (.chezmoidata/packages.yaml)
 
-只需编辑 `.chezmoidata/packages.yaml`，push 后在其他机器执行 `chezmoi update` 即可：
+本项目的软件安装遵循**数据驱动**原则，通过 `packages.yaml` 集中管理所有软件，安装脚本会自动读取此文件并根据当前平台进行安装。
+
+### 配置结构
+该文件由三部分组成：
+
+1. **`cli`**: 基础 CLI 工具定义。
+   - 使用 `common` 键名可同时匹配所有平台。
+   - 或指定平台名称（`arch`, `debian`, `darwin`）匹配特定包名。
+2. **`install_commands`**: 定义不同平台的包管理器执行前缀。
+   - 示例：`arch: "yay -S --needed --noconfirm"`。
+3. **`gui_apps`**: GUI 软件清单，支持跨平台映射。
+
+### 添加软件指南
+只需在 `.chezmoidata/packages.yaml` 中添加一行配置即可。例如添加一款名为 `myapp` 的软件：
 
 ```yaml
 gui_apps:
-  # 逻辑名: { 平台: 包名 }
-  vscode:
-    arch: visual-studio-code-bin
-    debian: code
-    winget: Microsoft.VisualStudioCode
+  myapp:
+    arch: myapp-bin     # Arch/Manjaro 下的包名
+    debian: myapp       # Debian/Ubuntu 下的包名
+    darwin: myapp       # macOS 下的包名
+    winget: MyCompany.MyApp # Windows 下的 winget 包 ID
 ```
 
-## 支持平台
+修改并保存后，运行 `chezmoi apply` 或 `chezmoi update`，脚本会自动检测改动并执行安装。
 
-| 平台 | CLI | GUI |
-|---|---|---|
-| macOS | Homebrew | Homebrew Cask |
-| Arch / Manjaro / EndeavourOS | yay（pacman + AUR）| yay |
-| Ubuntu / Debian | apt | 官方 deb 源 |
-| Fedora / RHEL | dnf | dnf |
-| openSUSE | zypper | zypper |
-| Alpine | apk | — |
-| Windows WSL2 | apt | winget（装在 Windows 侧）|
+## 🏗 项目架构
 
-## 脚本触发机制
-
-脚本内容变化时自动重新执行（Chezmoi 用 SHA256 哈希判断）：
-- 新机器首次部署 → 执行
-- `packages.yaml` 有改动 → `run_onchange_...` 脚本自动重新执行
-- 脚本内容无变化 → 跳过
-
-## 日常命令
-
-```bash
-chezmoi edit ~/.zshrc    # 编辑配置
-chezmoi apply            # 应用改动
-chezmoi update           # 拉取最新并应用
-chezmoi diff             # 查看未应用的变更
-chezmoi cd               # 进入仓库目录
-```
-
-## 目录结构
-
-```
+```text
 dotfiles/
-├── .chezmoidata/
-│   └── packages.yaml               # ← 唯一需要日常维护的文件
-├── .chezmoi.toml.tmpl              # 初始化询问姓名、邮箱
-├── dot_bashrc.tmpl                 # bash 配置
-├── dot_zshrc.tmpl                  # zsh 配置
-├── dot_gitconfig.tmpl              # git 配置
-├── dot_config/
-│   ├── nvim/init.lua               # Neovim + lazy.nvim
-│   ├── tmux/tmux.conf              # Tmux
-│   └── mise/config.toml            # Node / Python / Go 版本
-└── .chezmoiscripts/
-    ├── run_once_00_setup_mirrors.sh.tmpl # 镜像源配置
-    ├── run_onchange_01_install_cli.sh.tmpl   # 安装 CLI 工具
-    └── run_onchange_02_install_gui.sh.tmpl   # 安装 GUI 应用 + GNOME 托盘启用
+├── .chezmoidata/           # 外部数据配置
+│   └── packages.yaml       # 维护各发行版下的软件安装包列表
+├── .chezmoiscripts/        # 自动化执行脚本 (基于 bash 幂等实现)
+│   ├── run_onchange_00_setup_mirrors.sh.tmpl   # 智能镜像源测速与切换
+│   ├── run_onchange_01_install_cli.sh.tmpl     # CLI 工具自动化安装
+│   ├── run_onchange_02_install_gui.sh.tmpl     # GUI 应用与桌面环境配置
+│   ├── run_onchange_03_setup_docker_mirror.sh.tmpl # Docker 加速配置
+│   └── run_onchange_04_setup_shell_source.sh.tmpl  # Shell 自定义插件挂载
+├── dot_config/             # 标准 XDG 配置目录
+│   ├── fcitx5/             # 输入法配置
+│   ├── mise/               # 编程语言版本管理工具 (Node/Python/Go)
+│   └── shell/              # 自定义 Shell 环境插件
+└── dot_gitconfig.tmpl      # 全局 Git 配置模板
 ```
+
+## ✨ 核心特性
+
+*   **智能镜像管理**: 针对不同网络环境，自动执行多源并行测速，确保包管理器更新速度最优。
+*   **幂等自动化**: 所有 `run_onchange_` 脚本利用 `chezmoi` 的 SHA256 哈希校验机制，确保仅在脚本逻辑或配置发生变更时执行，避免重复配置。
+*   **跨发行版支持**: 
+    *   **Arch/Manjaro**: 自动处理 Archlinuxcn 源及 `pacman-mirrors`。
+    *   **Debian/Ubuntu**: 支持传统源与 DEB822 格式源的自动替换。
+    *   **Fedora/RHEL**: 自动优化 `dnf` 仓库配置。
+*   **声明式维护**: 只需在 `packages.yaml` 中添加包名，通过 `chezmoi update` 即可同步至所有机器。
+
+## 🛠 日常维护指南
+
+| 场景 | 命令 |
+| :--- | :--- |
+| **编辑配置** | `chezmoi edit <文件名>` |
+| **应用更改** | `chezmoi apply` |
+| **同步更新** | `chezmoi update` |
+| **检查差异** | `chezmoi diff` |
+| **进入配置目录** | `chezmoi cd` |
+
+## ⚙️ 贡献与自定义
+
+1. **添加软件**: 修改 `.chezmoidata/packages.yaml`。
+2. **新增配置**: 在 `dot_config` 下创建相应文件夹，并确保符合 `chezmoi` 命名规范（如 `dot_` 前缀）。
+3. **增加脚本**: 若需新增初始化逻辑，请在 `.chezmoiscripts/` 下创建 `run_onchange_<序号>_<说明>.sh.tmpl` 文件。

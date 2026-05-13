@@ -1,0 +1,94 @@
+#!/bin/bash
+# 配置 Docker 国内镜像加速
+# 仅在 Linux 上执行（macOS Docker Desktop 在 GUI 里配置）
+
+set -euo pipefail
+
+# ── 日志配置 ───────────────────────────────────────
+LOG_FILE="$HOME/.chezmoi_install.log"
+sudo -v
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+# ── Terminal 反馈 ──────────────────────────────
+msg() {
+  echo "$@" >&2
+  echo "$@" >/dev/tty 2>/dev/null || true
+}
+
+# ── 退出处理 ───────────────────────────────────
+on_exit() {
+  local ec=$?
+  if [ $ec -eq 0 ]; then
+    msg "=================================================="
+    msg "✅ Docker 镜像配置完成!"
+    msg "   详细日志: $LOG_FILE"
+    msg "   使 docker 组生效: newgrp docker  或注销重新登录"
+    msg "=================================================="
+  else
+    msg "=================================================="
+    msg "❌ Docker 镜像配置失败 (退出码: $ec)"
+    msg "   排查方向:"
+    msg "     1. 查看日志尾部: tail -30 $LOG_FILE"
+    msg "     2. 确认 Docker 是否已安装: docker info"
+    msg "     3. 检查 sudo 权限"
+    msg "=================================================="
+  fi
+}
+trap on_exit EXIT
+
+msg "=================================================="
+msg "开始执行 Docker 镜像配置脚本: $(date)"
+msg "=================================================="
+
+{{- if eq .chezmoi.os "linux" }}
+{{- if not (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+
+# WSL2 跳过，Docker 装在 Windows 侧
+
+# 确保 Docker 已安装
+if ! command -v docker &>/dev/null; then
+  msg "⚠️  Docker 未安装，跳过镜像配置"
+  exit 0
+fi
+
+if [ -f /etc/docker/daemon.json ] && grep -q "docker.m.daocloud.io" /etc/docker/daemon.json; then
+  msg ">>> Docker 镜像加速已配置，跳过"
+else
+  msg ">>> 正在配置 Docker 国内镜像加速..."
+  sudo mkdir -p /etc/docker
+  sudo tee /etc/docker/daemon.json > /dev/null << 'EOF'
+{
+  "registry-mirrors": [
+    "https://docker.m.daocloud.io",
+    "https://mirror.baidubce.com",
+    "https://ccr.ccs.tencentyun.com",
+    "https://hub-mirror.c.163.com"
+  ],
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "10m",
+    "max-file": "3"
+  }
+}
+EOF
+
+  # 重启 Docker 服务使配置生效
+  msg ">>> 正在重启 Docker 服务..."
+  sudo systemctl daemon-reload
+  sudo systemctl enable docker
+  sudo systemctl restart docker
+
+  msg ">>> Docker 镜像加速配置完成"
+fi
+
+# 配置权限
+if ! groups $USER | grep &>/dev/null "\bdocker\b"; then
+  msg ">>> 正在将当前用户添加到 docker 组..."
+  sudo usermod -aG docker $USER
+  msg "⚠️  注意: 请重新登录或运行 'newgrp docker' 以使 Docker 权限生效"
+fi
+
+{{- else }}
+msg "WSL2 环境，Docker 镜像加速请在 Docker Desktop 的 Settings → Docker Engine 中配置"
+{{- end }}
+{{- end }}

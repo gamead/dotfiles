@@ -1,81 +1,84 @@
 #!/bin/bash
+# gui install hash: {{ include ".chezmoiscripts/run_onchange_02_install_gui.sh.tmpl" | sha256sum }}
 # packages.yaml hash: {{ include ".chezmoidata/packages.yaml" | sha256sum }}
 
 set -euo pipefail
 
 # ── 日志配置 ───────────────────────────────────────
 LOG_FILE="$HOME/.chezmoi_install.log"
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "=================================================="
-echo "开始执行 GUI 安装脚本: $(date)"
-echo "=================================================="
+sudo -v
+exec >> "$LOG_FILE" 2>&1
 
-{{ $os := .chezmoi.os -}}
-{{ $is_wsl := (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+# ── Terminal 反馈 ──────────────────────────────
+msg() {
+  echo "$@" >&2
+  echo "$@" >/dev/tty 2>/dev/null || true
+}
 
-{{ $distro := "" -}}
-{{ $distro_like := "" -}}
-{{- if hasKey .chezmoi "osRelease" -}}
-  {{- $distro = .chezmoi.osRelease.id -}}
-  {{- if hasKey .chezmoi.osRelease "idLike" -}}
-    {{- $distro_like = .chezmoi.osRelease.idLike -}}
-  {{- end -}}
-{{- end -}}
+# ── 退出处理 ───────────────────────────────────
+on_exit() {
+  local ec=$?
+  if [ $ec -eq 0 ]; then
+    msg "=================================================="
+    msg "✅ GUI 软件同步完成!"
+    msg "   详细日志: $LOG_FILE"
+    msg "   如果启用 GNOME 扩展，请注销后重新登录"
+    msg "=================================================="
+  else
+    msg "=================================================="
+    msg "❌ GUI 软件同步失败 (退出码: $ec)"
+    msg "   排查方向:"
+    msg "     1. 查看日志尾部: tail -30 $LOG_FILE"
+    msg "     2. 检查包管理器是否有可用更新"
+    msg "     3. 尝试手动安装失败的包"
+    msg "=================================================="
+  fi
+}
+trap on_exit EXIT
 
-echo ">>> 正在同步 GUI 软件 (数据驱动模式)..."
+msg "=================================================="
+msg "开始执行 GUI 安装脚本: $(date)"
+msg "=================================================="
 
-  {{- if and (eq $os "linux") (or (eq $distro "arch") (contains "arch" $distro_like)) }}
-    echo ">>> 正在刷新 Arch Linux CN 密钥环并更新包数据库..."
-    sudo pacman -S archlinuxcn-keyring --noconfirm
-    # sudo pacman-key --refresh-keys
-    sudo pacman -Syy --noconfirm
-    echo ">>> 密钥环和包数据库更新完成。"
-  {{- end }}
+msg ">>> 正在同步 GUI 软件..."
 
-  # --- 自动启用 GNOME 托盘扩展 ---
-  {{- if and (eq $os "linux") (not $is_wsl) }}
-    if command -v gsettings &>/dev/null && gsettings list-schemas | grep -q "org.gnome.shell"; then
-      echo ">>> 检查 GNOME 托盘扩展状态..."
-      
-      UUID="appindicatorsupport@rgcjonas.gmail.com"
-      # 获取已启用的扩展列表
-      ENABLED=$(gsettings get org.gnome.shell enabled-extensions)
+# --- 自动启用 GNOME 托盘扩展 ---
+{{- if and (eq .os "linux") (not .is_wsl) }}
+  if command -v gsettings &>/dev/null && gsettings list-schemas | grep -q "org.gnome.shell"; then
+    msg ">>> 检查 GNOME 托盘扩展状态..."
+    
+    UUID="appindicatorsupport@rgcjonas.gmail.com"
+    ENABLED=$(gsettings get org.gnome.shell enabled-extensions)
 
-      # 检查是否已包含该 UUID
-      if [[ "$ENABLED" != *"$UUID"* ]]; then
-        echo ">>> 正在将 $UUID 添加到 GNOME 扩展列表..."
-        # 处理空列表的情况
-        if [[ "$ENABLED" == "@as []" ]] || [[ "$ENABLED" == "[]" ]]; then
-          gsettings set org.gnome.shell enabled-extensions "['$UUID']"
-        else
-          gsettings set org.gnome.shell enabled-extensions "${ENABLED%]*}, '$UUID']"
-        fi
-        echo ">>> 扩展已启用，请注销并重新登录。"
+    if [[ "$ENABLED" != *"$UUID"* ]]; then
+      msg ">>> 正在添加 GNOME 托盘扩展..."
+      if [[ "$ENABLED" == "@as []" ]] || [[ "$ENABLED" == "[]" ]]; then
+        gsettings set org.gnome.shell enabled-extensions "['$UUID']"
       else
-        echo ">>> AppIndicator 扩展已启用，跳过。"
+        gsettings set org.gnome.shell enabled-extensions "${ENABLED%]*}, '$UUID']"
       fi
+      msg ">>> 扩展已启用，请注销并重新登录"
+    else
+      msg ">>> AppIndicator 扩展已启用，跳过"
     fi
-  {{- end }}
-
-
+  fi
+{{- end }}
 
 {{- range $app_name, $platforms := .gui_apps }}
   
   # --- 1. 确定目标平台和安装包 ---
   {{- $target_platform := "" -}}
   
-  {{- if $is_wsl }}
-    {{- /* WSL2 逻辑：优先尝试 Windows 侧安装 (winget)，否则回退到 linux 本地 */ -}}
+  {{- if $.is_wsl }}
     {{- if index $platforms "winget" -}}{{- $target_platform = "winget" -}}
-    {{- else if or (eq $distro "debian") (eq $distro "ubuntu") -}}{{- $target_platform = "debian" -}}
+    {{- else if $.is_debian -}}{{- $target_platform = "debian" -}}
     {{- end }}
-  {{- else if eq $os "darwin" }}
+  {{- else if eq $.os "darwin" }}
     {{- if index $platforms "darwin" -}}{{- $target_platform = "darwin" -}}
     {{- end }}
-  {{- else if eq $os "linux" }}
-    {{- /* 智能匹配发行版系 */ -}}
-    {{- if or (eq $distro "arch") (contains "arch" $distro_like) }}{{ if index $platforms "arch" }}{{ $target_platform = "arch" }}{{ end }}
-    {{- else if or (eq $distro "debian") (eq $distro "ubuntu") (contains "debian" $distro_like) }}{{ if index $platforms "debian" }}{{ $target_platform = "debian" }}{{ end }}
+  {{- else if eq $.os "linux" }}
+    {{- if $.is_arch }}{{ if index $platforms "arch" }}{{ $target_platform = "arch" }}{{ end }}
+    {{- else if $.is_debian }}{{ if index $platforms "debian" }}{{ $target_platform = "debian" }}{{ end }}
     {{- end }}
   {{- end }}
 
@@ -85,32 +88,28 @@ echo ">>> 正在同步 GUI 软件 (数据驱动模式)..."
     {{- $pkg := index $platforms $target_platform | default (index $platforms "common") }}
     
     {{- if $pkg }}
-    echo "[{{ $app_name }}] 检测到适用平台: {{ $target_platform }} (包: {{ $pkg }})..."
+    msg "[{{ $app_name }}] 检测到适用平台: {{ $target_platform }} (包: {{ $pkg }})..."
     
-    {{- if eq $target_platform "winget" }}
-    # 检查 Windows 侧是否已安装（避免重复弹出 UAC）
-    if ! powershell.exe -Command "winget list --id {{ $pkg }}" &>/dev/null; then
-      echo "正在通过 Winget 安装 {{ $app_name }}..."
-      powershell.exe -Command "{{ $cmd }} {{ $pkg }}"
-    else
-      echo "{{ $app_name }} 已在 Windows 侧安装，跳过。"
+    # 增加错误捕获，不因单个包失败而中断
+    if ! (
+      {{- if eq $target_platform "winget" }}
+        if ! powershell.exe -Command "winget list --id {{ $pkg }}" &>/dev/null; then
+          powershell.exe -Command "{{ $cmd }} {{ $pkg }}"
+        fi
+      {{- else if eq $target_platform "arch" }}
+        if ! command -v yay &>/dev/null; then
+          exit 1
+        else
+          {{ $cmd }} {{ $pkg }}
+        fi
+      {{- else }}
+        {{ $cmd }} {{ $pkg }}
+      {{- end }}
+    ); then
+      msg "⚠️  警告: {{ $app_name }} 安装失败，跳过"
     fi
-
-    {{- else if eq $target_platform "arch" }}
-    if ! command -v yay &>/dev/null; then
-      echo "警告: 未找到 yay，跳过 {{ $app_name }} 的安装。"
-    else
-      {{ $cmd }} {{ $pkg }}
-    fi
-
-    {{- else }}
-    {{ $cmd }} {{ $pkg }}
     {{- end }}
-    {{- end }}
-  {{- else }}
-    # echo "信息: {{ $app_name }} 在当前系统环境下无定义，跳过。"
   {{- end }}
-
 {{- end }}
 
-echo ">>> GUI 软件同步完成 ✅"
+msg ">>> GUI 软件同步完成"

@@ -6,18 +6,18 @@
 # ── 1. 基础系统工具 ────────
 # 逻辑名称: { 平台: 包名 }
 cli:
-  git:      { common: git }
-  zsh:      { common: zsh }
-  curl:     { common: curl }
-  ca:       { common: ca-certificates }
-  starship: { common: starship }
-  ripgrep:  { common: ripgrep }
-  fzf:      { common: fzf }
-  tmux:     { common: tmux }
-  bat:      { arch: bat, debian: bat, darwin: bat }
-  fd:       { arch: fd, debian: fd-find, darwin: fd }
-  vm-tools: { arch: open-vm-tools, debian: open-vm-tools }
-  vbox-utils: { arch: virtualbox-guest-utils, debian: virtualbox-guest-utils }
+  # git:      { common: git }
+  # zsh:      { common: zsh }
+  # curl:     { common: curl }
+  # ca:       { common: ca-certificates }
+  # starship: { common: starship }
+  # ripgrep:  { common: ripgrep }
+  # fzf:      { common: fzf }
+  # tmux:     { common: tmux }
+  # bat:      { arch: bat, debian: bat, darwin: bat }
+  # fd:       { arch: fd, debian: fd-find, darwin: fd }
+  # vm-tools: { arch: open-vm-tools, debian: open-vm-tools }
+  # vbox-utils: { arch: virtualbox-guest-utils, debian: virtualbox-guest-utils }
 
 # ── 2. 安装指令定义 ──────────────────────────────────
 # 定义不同平台/包管理器的安装前缀
@@ -33,8 +33,10 @@ install_commands:
 gui_apps:
   # --- 输入法组件 (仅在 Linux 桌面有效) ---
   fcitx5:
-    arch: fcitx5 fcitx5-chinese-addons fcitx5-configtool fcitx5-gtk fcitx5-qt fcitx5-im fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
-    debian: fcitx5 fcitx5-chinese-addons fcitx5-config-qt fcitx5-frontend-gtk3 fcitx5-frontend-qt5 fcitx5-rime
+    # arch: fcitx5 fcitx5-chinese-addons fcitx5-configtool fcitx5-gtk fcitx5-qt fcitx5-im fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
+    # debian: fcitx5 fcitx5-chinese-addons fcitx5-config-qt fcitx5-frontend-gtk3 fcitx5-frontend-qt5 fcitx5-rime
+    arch: fcitx5-im fcitx5-chinese-addons fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
+    debian: fcitx5-im fcitx5-chinese-addons fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
   
   gnome-tray:
     arch: gnome-shell-extension-appindicator
@@ -51,15 +53,3 @@ gui_apps:
     arch: docker
     debian: docker-ce
     winget: Docker.DockerDesktop
-  wezterm:
-    darwin: wezterm
-    arch: wezterm
-    winget: wez.wezterm
-  raycast:
-    darwin: raycast
-  rectangle:
-    darwin: rectangle
-  iterm2:
-    darwin: iterm2
-  timeshift:
-    arch: timeshift

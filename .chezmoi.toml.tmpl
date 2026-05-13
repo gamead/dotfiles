@@ -1,5 +1,28 @@
+{{- $os := .chezmoi.os -}}
+{{- $is_wsl := false -}}
+{{- if eq $os "linux" -}}
+{{-   if (.chezmoi.kernel.osrelease | lower | contains "microsoft") -}}
+{{-     $is_wsl = true -}}
+{{-   end -}}
+{{- end -}}
+
+{{- $distro := "" -}}
+{{- $distro_like := "" -}}
+{{- if hasKey .chezmoi "osRelease" -}}
+{{-   $distro = .chezmoi.osRelease.id -}}
+{{-   if hasKey .chezmoi.osRelease "idLike" -}}
+{{-     $distro_like = .chezmoi.osRelease.idLike -}}
+{{-   end -}}
+{{- end -}}
+
 backup = true
 
 [data]
   name  = "{{ promptStringOnce . "name"  "Your full name" }}"
   email = "{{ promptStringOnce . "email" "Your email address" }}"
+  os = {{ $os | quote }}
+  is_wsl = {{ $is_wsl }}
+  distro = {{ $distro | quote }}
+  distro_like = {{ $distro_like | quote }}
+  is_arch = {{ or (eq $distro "arch") (contains "arch" $distro_like) }}
+  is_debian = {{ or (eq $distro "debian") (eq $distro "ubuntu") (contains "debian" $distro_like) }}

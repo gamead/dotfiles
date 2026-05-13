@@ -1,0 +1,291 @@
+#!/bin/bash
+# mirrors config hash: {{ include ".chezmoiscripts/run_onchange_00_setup_mirrors.sh.tmpl" | sha256sum }}
+# 切换国内软件源（动态并行测速 + 标记驱动型）
+
+set -euo pipefail
+
+# ── 配置 ───────────────────────────────────────────
+MANAGED_TAG="__managed_by_envit__"
+LOG_FILE="$HOME/.chezmoi_install.log"
+
+# 候选镜像列表
+MIRRORS=(
+  "https://mirrors.tuna.tsinghua.edu.cn"
+  "https://mirrors.aliyun.com"
+  "https://mirrors.ustc.edu.cn"
+)
+
+# ── Terminal 反馈 ──────────────────────────────
+msg() {
+  echo "$@" >&2
+  echo "$@" >/dev/tty 2>/dev/null || true
+}
+
+# ── 退出处理 ───────────────────────────────────
+cleanup() {
+  [ -d "${TMP_DIR:-}" ] && rm -rf "$TMP_DIR" || true
+}
+on_exit() {
+  local ec=$?
+  cleanup
+  if [ $ec -eq 0 ]; then
+    msg "=================================================="
+    msg "✅ 软件源配置完成!"
+    msg "   详细日志: $LOG_FILE"
+    msg "   无需额外操作，镜像已生效"
+    msg "=================================================="
+  else
+    msg "=================================================="
+    msg "❌ 软件源配置失败 (退出码: $ec)"
+    msg "   排查方向:"
+    msg "     1. 查看日志尾部: tail -30 $LOG_FILE"
+    msg "     2. 检查网络连接和 sudo 权限"
+    msg "     3. 手动测试: curl -I https://mirrors.tuna.tsinghua.edu.cn"
+    msg "=================================================="
+  fi
+}
+trap on_exit EXIT
+
+# 日志轮转（超过 10MB 则归档）
+[ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt 10485760 ] && mv "$LOG_FILE" "${LOG_FILE}.old"
+
+# 预先缓存 sudo 凭据（在重定向前，确保终端交互可用）
+sudo -v
+
+# 重定向输出到日志
+exec >> "$LOG_FILE" 2>&1
+echo "=================================================="
+msg "开始执行系统镜像配置脚本: $(date)"
+echo "=================================================="
+
+# 检查权限
+if [[ $EUID -ne 0 ]] && ! command -v sudo &>/dev/null; then
+   msg "⚠️  错误: 未找到 sudo 且非 root 用户，无法进行镜像配置。"
+   exit 1
+fi
+
+# 并行测速函数
+get_fastest_mirror() {
+  if ! command -v curl &>/dev/null; then
+    msg "错误: 需要 curl 进行测速，但未安装。"
+    exit 1
+  fi
+  
+  TMP_DIR=$(mktemp -d)
+  chmod 777 "$TMP_DIR"
+  local i=0
+  
+  msg ">>> 正在并行检测镜像速度..."
+  for url in "${MIRRORS[@]}"; do
+    i=$((i+1))
+    (
+      # 使用 LC_ALL=C 确保时间格式统一
+      local latency
+      latency=$(LC_ALL=C curl -o /dev/null -s -f -L -w "%{time_connect}" --connect-timeout 2 "$url/" || echo 999)
+      echo "$latency $url" > "$TMP_DIR/$i"
+    ) &
+  done
+  wait
+  
+  local best
+  best=$(cat "$TMP_DIR"/* | sort -n | head -n 1)
+  local min_latency
+  min_latency=$(echo "$best" | cut -d' ' -f1)
+  local fastest_url
+  fastest_url=$(echo "$best" | cut -d' ' -f2)
+  
+  if [ "$min_latency" = "999" ]; then
+    echo "" # 返回空表示失败
+  else
+    echo "$fastest_url"
+  fi
+}
+
+# 变量缓存
+SELECTED_MIRROR=""
+get_mirror() {
+  if [ -z "$SELECTED_MIRROR" ]; then
+    SELECTED_MIRROR=$(get_fastest_mirror)
+    if [ -z "$SELECTED_MIRROR" ]; then
+      msg "⚠️  警告: 未能检测到可用镜像，跳过镜像配置。"
+      return 1
+    fi
+  fi
+  echo "$SELECTED_MIRROR"
+  return 0
+}
+
+# 安装 archlinuxcn-keyring
+install_archlinuxcn_keyring() {
+  if pacman -Qs archlinuxcn-keyring > /dev/null 2>&1; then
+    return 0
+  fi
+  msg ">>> 正在安装 archlinuxcn 密钥环..."
+  local tmpconfig
+  tmpconfig=$(mktemp)
+  sed 's/SigLevel.*/SigLevel = Optional TrustAll/' /etc/pacman.conf > "$tmpconfig"
+  sudo pacman -Sy --noconfirm --config "$tmpconfig" archlinuxcn-keyring
+  rm -f "$tmpconfig"
+}
+
+# 配置 archlinuxcn 源
+setup_archlinuxcn() {
+  local mirror_url="$1"
+  [ -z "$mirror_url" ] && return 1
+
+  # If archlinuxcn exists and is NOT managed by envit, skip (user-managed)
+  if grep -q "^\[archlinuxcn\]" /etc/pacman.conf; then
+    if grep -q "${MANAGED_TAG}" /etc/pacman.conf; then
+      msg ">>> 检测到 envit 管理的 archlinuxcn 配置，重新应用..."
+    else
+      msg ">>> archlinuxcn 已在 pacman.conf 中定义，跳过追加。"
+      return 0
+    fi
+  else
+    msg ">>> 正在配置 archlinuxcn 软件源..."
+  fi
+
+  local tmp_pacman=$(mktemp)
+  sudo cp /etc/pacman.conf "$tmp_pacman"
+  sudo chmod 666 "$tmp_pacman"
+
+  # Remove old envit-managed block before re-applying
+  if grep -q "${MANAGED_TAG}" "$tmp_pacman"; then
+    awk -v tag="# ${MANAGED_TAG}" '
+      $0 == tag { skip = 1; next }
+      skip && /^\[archlinuxcn\]/ { next }
+      skip && /^\[/ { skip = 0 }
+      skip { next }
+      { print }
+    ' "$tmp_pacman" > "${tmp_pacman}.clean"
+    sudo mv "${tmp_pacman}.clean" "$tmp_pacman"
+  fi
+
+  cat << EOF >> "$tmp_pacman"
+
+# ${MANAGED_TAG}
+[archlinuxcn]
+Server = ${mirror_url}/archlinuxcn/\$arch
+EOF
+  sudo mv "$tmp_pacman" /etc/pacman.conf
+  install_archlinuxcn_keyring
+}
+
+{{- if eq .os "linux" }}
+
+# ── 检测发行版 ────────────────────────────────────
+if command -v pacman &>/dev/null; then
+  # ── Arch / Manjaro ────────────────────────────────
+  if [ -f /etc/manjaro-release ]; then
+    if grep -q "${MANAGED_TAG}" /etc/pacman.d/mirrorlist 2>/dev/null 2>&1; then
+      msg ">>> Manjaro 软件源已由 envit 管理，跳过。"
+    else
+      msg ">>> 检测到 Manjaro，正在切换国内镜像源..."
+      sudo pacman-mirrors --country China --api --protocol https || true
+      echo "# ${MANAGED_TAG}" | sudo tee -a /etc/pacman.d/mirrorlist > /dev/null
+    fi
+  else
+    if grep -q "${MANAGED_TAG}" /etc/pacman.d/mirrorlist 2>/dev/null; then
+      msg ">>> Arch 软件源已由 envit 管理，跳过。"
+    else
+      FASTEST_URL=$(get_mirror)
+      msg ">>> 正在配置 Arch 软件源 (最优: ${FASTEST_URL})..."
+      local tmp_mirror=$(mktemp)
+      {
+        echo "# ${MANAGED_TAG}"
+        echo "Server = ${FASTEST_URL}/archlinux/\$repo/os/\$arch"
+        for url in "${MIRRORS[@]}"; do
+          if [ "$url" != "$FASTEST_URL" ]; then
+            echo "Server = ${url}/archlinux/\$repo/os/\$arch"
+          fi
+        done
+      } > "$tmp_mirror"
+      sudo mv "$tmp_mirror" /etc/pacman.d/mirrorlist
+    fi
+  fi
+  if FASTEST_URL=$(get_mirror); then
+    setup_archlinuxcn "$FASTEST_URL"
+  else
+    msg ">>> 网络不可达，跳过 archlinuxcn 配置。"
+  fi
+  msg ">>> 正在同步软件包数据库..."
+  sudo pacman -Sy --noconfirm || true
+  msg ">>> 软件包数据库同步完成"
+
+elif command -v apt-get &>/dev/null; then
+  # ── Debian / Ubuntu ───────────────────────────────
+  if ! FASTEST_URL=$(get_mirror); then
+    msg ">>> 跳过 apt 软件源配置。"
+  else
+    shopt -s nullglob
+    SOURCES_FILES=(/etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources)
+    
+    for src in "${SOURCES_FILES[@]}"; do
+      [ -f "$src" ] || continue
+      if grep -q "${MANAGED_TAG}" "$src"; then
+        msg ">>> $src 已由 envit 管理，跳过。"
+        continue
+      fi
+      
+      msg ">>> 正在更新 $src (最优: ${FASTEST_URL})..."
+      local tmp_src=$(mktemp)
+      sudo cp "$src" "$tmp_src"
+      
+      # 替换传统格式
+      sudo sed -E -i "s@https?://([^/ ]+)\.debian\.org@${FASTEST_URL}@g" "$tmp_src"
+      sudo sed -E -i "s@https?://([^/ ]+)\.ubuntu\.com@${FASTEST_URL}@g" "$tmp_src"
+      sudo sed -E -i "s@https?://deb\.debian\.org@${FASTEST_URL}@g" "$tmp_src"
+      # 兼容 DEB822 格式
+      sudo sed -E -i "s@URIs: https?://([^/ ]+)\.debian\.org@URIs: ${FASTEST_URL}@g" "$tmp_src"
+      sudo sed -E -i "s@URIs: https?://([^/ ]+)\.ubuntu\.com@URIs: ${FASTEST_URL}@g" "$tmp_src"
+      
+      sudo chmod 666 "$tmp_src"
+      echo "# ${MANAGED_TAG}" >> "$tmp_src"
+      sudo mv "$tmp_src" "$src"
+    done
+    shopt -u nullglob
+    
+    sudo apt-get update -q
+  fi
+
+elif command -v dnf &>/dev/null || command -v yum &>/dev/null; then
+  # ── RedHat / CentOS / Fedora ──────────────────────
+  PM=$(command -v dnf || command -v yum)
+  if ! FASTEST_URL=$(get_mirror); then
+    msg ">>> 跳过 RedHat 系软件源配置。"
+  else
+    shopt -s nullglob
+    for repo in /etc/yum.repos.d/*.repo; do
+      [ -f "$repo" ] || continue
+      if grep -q "${MANAGED_TAG}" "$repo"; then
+        msg ">>> $repo 已由 envit 管理，跳过。"
+        continue
+      fi
+      
+      msg ">>> 正在更新 $repo ..."
+      local tmp_repo=$(mktemp)
+      sudo cp "$repo" "$tmp_repo"
+      
+      # 处理 Fedora
+      if [ -f /etc/fedora-release ]; then
+        sudo sed -E -e 's|^metalink=|#metalink=|g' \
+             -e "s|^#?baseurl=https?://download\.fedoraproject\.org/pub/fedora/linux|baseurl=${FASTEST_URL}/fedora/linux|g" \
+             -i "$tmp_repo" || true
+      # 处理 CentOS / RHEL
+      elif [ -f /etc/centos-release ] || [ -f /etc/redhat-release ]; then
+        sudo sed -E -e 's|^mirrorlist=|#mirrorlist=|g' \
+             -e "s|^#?baseurl=https?://mirror\.centos\.org/centos|baseurl=${FASTEST_URL}/centos|g" \
+             -i "$tmp_repo" || true
+      fi
+      
+      sudo chmod 666 "$tmp_repo"
+      echo "# ${MANAGED_TAG}" >> "$tmp_repo"
+      sudo mv "$tmp_repo" "$repo"
+    done
+    shopt -u nullglob
+    
+    sudo "$PM" makecache
+  fi
+fi
+exit 0
+{{- end }}

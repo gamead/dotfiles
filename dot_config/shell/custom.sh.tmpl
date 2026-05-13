@@ -1,0 +1,14 @@
+# ── mise 语言管理 ──────────────────────────────────
+# 确保 mise shims 在 PATH 中
+export PATH="$HOME/.local/share/mise/shims:$PATH"
+
+if command -v mise &> /dev/null; then
+  # 根据当前 shell 自动激活 mise 环境
+  if [ -n "$ZSH_VERSION" ]; then
+    eval "$(mise activate zsh)"
+  elif [ -n "$BASH_VERSION" ]; then
+    eval "$(mise activate bash)"
+  fi
+  # 使用 basename $SHELL 获取当前 shell 类型 (bash 或 zsh) 并自动激活
+  # eval "$(mise activate "$(basename "$SHELL")")"
+fi
