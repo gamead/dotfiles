@@ -42,6 +42,16 @@ msg "=================================================="
 
 msg ">>> 正在同步 GUI 软件..."
 
+{{- $has_gui_apps := false -}}
+{{- range $app_name, $platforms := .gui_apps -}}
+  {{- if or (index $platforms $.os) (index $platforms "common") -}}
+    {{- $has_gui_apps = true -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if not $has_gui_apps }}
+msg ">>> 提示: 未识别到适用于当前平台的 GUI 软件，跳过安装"
+{{- else }}
 # --- 自动启用 GNOME 托盘扩展 ---
 {{- if and (eq .os "linux") (not .is_wsl) }}
   if command -v gsettings &>/dev/null && gsettings list-schemas | grep -q "org.gnome.shell"; then
@@ -110,6 +120,8 @@ msg ">>> 正在同步 GUI 软件..."
     fi
     {{- end }}
   {{- end }}
+{{- end }}
+
 {{- end }}
 
 msg ">>> GUI 软件同步完成"

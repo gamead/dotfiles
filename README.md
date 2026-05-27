@@ -23,8 +23,25 @@ sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply https
 2. **系统适配**: 脚本自动检测当前发行版（Arch, Debian/Ubuntu, Fedora 等）。
 3. **镜像加速**: 自动并行测速并配置最快的软件源（清华/阿里/中科大）。
 4. **环境构建**: 安装基础 CLI 工具、配置 Shell 环境、部署输入法及开发环境工具。
+5. **v2rayA 透明代理** (Arch Linux): 自动安装 v2rayA + Xray-core，配置 TPROXY 透明代理并绕过大陆流量。
 
 > **💡 提示**: 安装过程中的详细日志记录于 `~/.chezmoi_install.log`。若部署过程中出现环境冲突或失败，请首先查阅此文件。
+
+### v2rayA 透明代理
+
+初始化脚本自动在 Arch Linux 上安装并配置 [v2rayA](https://v2raya.org) + [Xray-core](https://github.com/XTLS/Xray-core)，接管整机流量：
+
+*   自动注册管理员账号（密码随机生成，安装完成后打印在终端）
+*   开启 TPROXY 透明代理 + whitelist 分流（国内直连、国外代理）
+*   配置 systemd `CAP_NET_ADMIN` 权限
+
+如需自动导入订阅/节点链接，在运行初始化前设置环境变量：
+
+```bash
+V2RAYA_SUBSCRIBE_URL="https://your-subscription-url" sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply https://github.com/你的用户名/dotfiles
+```
+
+安装完成后通过 `http://localhost:2017` 访问 Web 管理界面。
 
 ## 📦 包管理配置说明 (.chezmoidata/packages.yaml)
 
@@ -65,7 +82,8 @@ dotfiles/
 │   ├── run_onchange_01_install_cli.sh.tmpl     # CLI 工具自动化安装
 │   ├── run_onchange_02_install_gui.sh.tmpl     # GUI 应用与桌面环境配置
 │   ├── run_onchange_03_setup_docker_mirror.sh.tmpl # Docker 加速配置
-│   └── run_onchange_04_setup_shell_source.sh.tmpl  # Shell 自定义插件挂载
+│   ├── run_onchange_04_setup_shell_source.sh.tmpl  # Shell 自定义插件挂载
+│   └── run_onchange_05_setup_v2raya.sh.tmpl        # v2rayA 透明代理自动部署
 ├── dot_config/             # 标准 XDG 配置目录
 │   ├── fcitx5/             # 输入法配置
 │   ├── mise/               # 编程语言版本管理工具 (Node/Python/Go)

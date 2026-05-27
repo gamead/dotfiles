@@ -1,0 +1,155 @@
+#!/bin/bash
+# v2raya hash: {{ include ".chezmoiscripts/run_onchange_05_setup_v2raya.sh.tmpl" | sha256sum }}
+# packages.yaml hash: {{ include ".chezmoidata/packages.yaml" | sha256sum }}
+# config_hash: {{ (print .v2raya_nodes .v2raya_admin_password) | sha256sum }}
+
+set -euo pipefail
+
+# ── 关键修复：强制本地访问不走代理 ──
+export no_proxy="localhost,127.0.0.1,$(hostname)"
+export NO_PROXY="localhost,127.0.0.1,$(hostname)"
+
+LOG_FILE="$HOME/.chezmoi_install.log"
+sudo -v
+exec >> "$LOG_FILE" 2>&1
+
+msg() {
+  echo "$@" >&2
+  echo "$@" >/dev/tty 2>/dev/null || true
+}
+
+on_exit() {
+  local ec=$?
+  if [ $ec -eq 0 ]; then
+    msg "=================================================="
+    msg "✅ v2rayA 安装配置完成!"
+    msg "   详细日志: $LOG_FILE"
+    msg "=================================================="
+  else
+    msg "=================================================="
+    msg "❌ v2rayA 安装失败 (退出码: $ec)"
+    msg "   排查方向:"
+    msg "     1. 查看日志尾部: tail -30 $LOG_FILE"
+    msg "     2. 检查系统是否已安装 pacman / yay"
+    msg "     3. 尝试手动运行: sudo systemctl start v2raya"
+    msg "=================================================="
+  fi
+}
+trap on_exit EXIT
+
+msg "=================================================="
+msg "开始配置 v2rayA: $(date)"
+msg "=================================================="
+
+{{ if eq .os "linux" }}{{ if .is_arch }}
+
+# ──────────────────────────────────────────────────────
+#  仅在 Arch Linux 下执行
+# ──────────────────────────────────────────────────────
+
+# 1. systemd Capabilities
+msg ">>> [1/7] 配置 systemd 网络权限 (CAP_NET_ADMIN)..."
+sudo mkdir -p /etc/systemd/system/v2raya.service.d
+sudo tee /etc/systemd/system/v2raya.service.d/override.conf > /dev/null << 'OVERRIDE'
+[Service]
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+OVERRIDE
+sudo systemctl daemon-reload
+
+# 2. 启动 v2rayA
+msg ">>> [2/7] 启动 v2rayA 服务..."
+sudo systemctl enable --now v2raya
+
+# 3. 等待 API 就绪
+msg ">>> [3/7] 等待 API 就绪 (已绕过系统代理)..."
+API_READY=false
+for i in $(seq 1 30); do
+  # 使用 --noproxy 确保万无一失
+  if curl -sf --noproxy "*" http://localhost:2017/api/version >/dev/null 2>&1; then
+    API_READY=true
+    break
+  fi
+  sleep 2
+done
+
+if [ "$API_READY" = false ]; then
+  msg "⚠️  v2rayA API 未能在 60s 内就绪，跳过配置"
+  exit 1
+fi
+
+# 4. 注册管理员
+msg ">>> [4/7] 配置管理员账号..."
+ADMIN_PASS="{{ .v2raya_admin_password }}"
+curl -sf --noproxy "*" -X POST http://localhost:2017/api/account \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" >/dev/null 2>&1 || msg "    管理员账号可能已存在，尝试登录..."
+
+# 5. 登录获取 JWT
+msg ">>> [5/7] 登录获取 Token..."
+LOGIN_RESP=$(curl -sf --noproxy "*" -X POST http://localhost:2017/api/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}") || true
+TOKEN=$(echo "$LOGIN_RESP" | sed 's/.*"token":"\([^"]*\)".*/\1/')
+
+if [ -z "$TOKEN" ]; then
+  msg "⚠️  登录失败，请检查 Web UI 确认密码"
+else
+  # 6. 配置透明代理
+  msg ">>> [6/7] 配置透明代理 (TPROXY + whitelist)..."
+  curl -sf --noproxy "*" -X PUT http://localhost:2017/api/setting \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "transparent": "whitelist",
+      "transparentType": "tproxy",
+      "ipforward": true,
+      "rulePortMode": "whitelist"
+    }' >/dev/null && msg "    透明代理配置完成"
+
+  # 7. 导入订阅/节点
+  V2RAYA_NODES="{{ .v2raya_nodes }}"
+  if [ -n "$V2RAYA_NODES" ]; then
+    msg ">>> [7/7] 检查并导入节点/订阅..."
+    
+    # 检查现有服务器或订阅中是否已包含该地址，防止重复添加
+    IS_EXISTS=false
+    if curl -sf --noproxy "*" -X GET http://localhost:2017/api/server -H "Authorization: Bearer $TOKEN" | grep -Fq "$V2RAYA_NODES"; then
+      IS_EXISTS=true
+    elif curl -sf --noproxy "*" -X GET http://localhost:2017/api/subscription -H "Authorization: Bearer $TOKEN" | grep -Fq "$V2RAYA_NODES"; then
+      IS_EXISTS=true
+    fi
+
+    if [ "$IS_EXISTS" = true ]; then
+      msg "    节点/订阅已存在，跳过导入"
+    else
+      msg "    正在导入新节点/订阅..."
+      IMPORT_RESP=$(curl -sf --noproxy "*" -X POST http://localhost:2017/api/import \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "{\"url\":\"$V2RAYA_NODES\"}") || true
+
+      # 更新订阅/节点列表
+      curl -sf --noproxy "*" -X POST http://localhost:2017/api/v2ray \
+        -H "Authorization: Bearer $TOKEN" >/dev/null || true
+
+      msg "    节点导入并尝试启动完成"
+    fi
+  fi
+fi
+
+# ── 输出摘要 ──
+msg "=========================================="
+msg "v2rayA 部署完成！"
+msg ""
+msg "  Web UI:   http://localhost:2017"
+msg "  管理员:   admin"
+msg "  密码:     $ADMIN_PASS"
+if [ -n "$V2RAYA_NODES" ]; then
+  msg "  节点:     已自动尝试导入"
+else
+  msg "  节点:     未配置"
+fi
+msg "=========================================="
+
+{{ end }}{{ end }}

@@ -26,3 +26,8 @@ backup = true
   distro_like = {{ $distro_like | quote }}
   is_arch = {{ or (eq $distro "arch") (contains "arch" $distro_like) }}
   is_debian = {{ or (eq $distro "debian") (eq $distro "ubuntu") (contains "debian" $distro_like) }}
+
+  {{ $v2raya_nodes := promptStringOnce . "v2raya_nodes" "v2rayA 订阅链接或手动节点 (vmess://...)" "" }}
+  v2raya_nodes = {{ $v2raya_nodes | quote }}
+  {{ $v2raya_pass := promptStringOnce . "v2raya_admin_password" "v2rayA 管理员密码" (randAlphaNum 12) }}
+  v2raya_admin_password = {{ $v2raya_pass | quote }}

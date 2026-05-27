@@ -6,9 +6,9 @@
 # ── 1. 基础系统工具 ────────
 # 逻辑名称: { 平台: 包名 }
 cli:
-  # git:      { common: git }
+  git:      { common: git }
   # zsh:      { common: zsh }
-  # curl:     { common: curl }
+  curl:     { common: curl }
   # ca:       { common: ca-certificates }
   # starship: { common: starship }
   # ripgrep:  { common: ripgrep }
@@ -53,3 +53,6 @@ gui_apps:
     arch: docker
     debian: docker-ce
     winget: Docker.DockerDesktop
+
+  v2raya:
+    arch: v2raya xray
