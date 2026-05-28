@@ -2,38 +2,16 @@
 # Shell config source injector
 # Ensures a non-destructive, idempotent injection of custom shell config.
 
+{{ template "scripts_common.sh" . }}
+
 set -euo pipefail
 
-# ── 日志配置 ───────────────────────────────────────
-LOG_FILE="$HOME/.chezmoi_install.log"
-exec >> "$LOG_FILE" 2>&1
+setup_traps "Shell 配置注入"
+init_env
 
-# ── Terminal 反馈 ──────────────────────────────
-msg() {
-  echo "$@" >&2
-  echo "$@" >/dev/tty 2>/dev/null || true
-}
-
-# ── 退出处理 ───────────────────────────────────
-on_exit() {
-  local ec=$?
-  if [ $ec -eq 0 ]; then
-    msg "=================================================="
-    msg "✅ Shell 配置注入完成!"
-    msg "   使配置生效: source ~/.bashrc  或重开终端"
-    msg "=================================================="
-  else
-    msg "=================================================="
-    msg "❌ Shell 配置注入失败 (退出码: $ec)"
-    msg "   排查方向:"
-    msg "     1. 检查 shell rc 文件权限: ls -la ~/.bashrc ~/.zshrc"
-    msg "     2. 确认 read/write 权限"
-    msg "=================================================="
-  fi
-}
-trap on_exit EXIT
-
-msg ">>> 正在配置 Shell 环境..."
+msg "=================================================="
+msg "开始配置 Shell 环境: $(date)"
+msg "=================================================="
 
 MARKER_START="# ── EnvIt Custom Config Start ──"
 MARKER_END="# ── EnvIt Custom Config End ──"

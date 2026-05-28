@@ -19,7 +19,7 @@
 
 [credential]
 {{- if .is_wsl }}
-  helper = /mnt/c/Program\\ Files/Git/mingw64/bin/git-credential-manager.exe
+  helper = "/mnt/c/Program Files/Git/mingw64/bin/git-credential-manager.exe"
 {{- else if eq .os "darwin" }}
   helper = osxkeychain
 {{- else if eq .os "linux" }}

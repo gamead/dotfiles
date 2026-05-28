@@ -1,9 +1,8 @@
 [tools]
 node    = "lts"
 python  = "3.12"
-go      = "latest"
-neovim  = "latest"
-usage   = "latest"
+ruby    = "latest"
+java    = "temurin-21"
 
 [settings]
 experimental = true

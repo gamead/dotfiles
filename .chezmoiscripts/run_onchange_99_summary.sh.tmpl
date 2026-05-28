@@ -2,95 +2,85 @@
 # summary hash: {{ include ".chezmoiscripts/run_onchange_99_summary.sh.tmpl" | sha256sum }}
 # 全流程汇总提示
 
+{{ template "scripts_common.sh" . }}
+
 set -euo pipefail
 
-LOG_FILE="$HOME/.chezmoi_install.log"
+# 汇总脚本不使用标准 trap，仅初始化环境
+init_env
 
-# ── 写入日志 ────────────────────────────────────
-exec >> "$LOG_FILE" 2>&1
-
-# ── 日志 + 终端输出 ─────────────────────────────
-show() {
-  echo "$@"                     # → 日志文件
-  echo "$@" >/dev/tty 2>/dev/null || true  # → 终端
-}
-
-echo ""
-echo "=============================================="
-echo "  全 部 配 置 完 成 ！"
-echo "=============================================="
-
-show ""
-show "=============================================="
-show "  ✅  🎉  全 部 配 置 完 成 ！"
-show "=============================================="
-show ""
-show "  以下操作使所有配置生效:"
-show ""
+msg ""
+msg "=============================================="
+msg "  ✅  🎉  全 部 配 置 完 成 ！"
+msg "=============================================="
+msg ""
+msg "  以下操作使所有配置生效:"
+msg ""
 
 # ── Shell 配置 ──────────────────────────────────
-show "  ── Shell 配置 ──"
-show "    重新加载:  source ~/.bashrc"
-show "    或直接新开一个终端标签页"
-show ""
+msg "  ── Shell 配置 ──"
+msg "    重新加载:  source ~/.bashrc"
+msg "    或直接新开一个终端标签页"
+msg ""
 
 # ── mise ────────────────────────────────────────
 if command -v mise &>/dev/null; then
   TOOL_COUNT=$(mise ls 2>/dev/null | wc -l)
-  show "  ── mise 开发工具 (${TOOL_COUNT} 个) ──"
-  show "    确认已激活:  mise ls"
-  show "    重新加载:    eval \"\$(mise activate bash)\""
-  show "    部分语言工具可能需要新终端才能生效"
-  show ""
+  msg "  ── mise 开发工具 (${TOOL_COUNT} 个) ──"
+  msg "    确认已激活:  mise ls"
+  msg "    重新加载:    eval \"\$(mise activate bash)\""
+  msg "    部分语言工具可能需要新终端才能生效"
+  msg ""
 fi
 
 # ── Docker ──────────────────────────────────────
 if groups "$USER" 2>/dev/null | grep -q "\bdocker\b"; then
-  show "  ── Docker 权限 ──"
-  show "    当前用户已在 docker 组中"
-  show "    立即生效:  newgrp docker"
-  show "    永久生效:  注销并重新登录"
-  show ""
+  msg "  ── Docker 权限 ──"
+  msg "    当前用户已在 docker 组中"
+  msg "    立即生效:  newgrp docker"
+  msg "    永久生效:  注销并重新登录"
+  msg ""
 fi
 
 # ── GNOME 扩展 ──────────────────────────────────
 if command -v gsettings &>/dev/null; then
   GNOME_EXT=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || true)
   if echo "$GNOME_EXT" | grep -q "appindicatorsupport@rgcjonas.gmail.com"; then
-    show "  ── GNOME 托盘扩展 ──"
-    show "    已启用 AppIndicator"
-    show "    注销并重新登录后生效"
-    show ""
+    msg "  ── GNOME 托盘扩展 ──"
+    msg "    已启用 AppIndicator"
+    msg "    注销并重新登录后生效"
+    msg ""
   fi
 fi
 
 # ── 镜像 / 包管理器 ──────────────────────────────
 HAS_PACMAN=$(command -v pacman &>/dev/null && echo 1 || echo 0)
 HAS_APT=$(command -v apt-get &>/dev/null && echo 1 || echo 0)
+HAS_BREW=$(command -v brew &>/dev/null && echo 1 || echo 0)
 
 if [ "$HAS_PACMAN" = "1" ]; then
-  show "  ── 包管理器 (pacman) ──"
-  show "    软件源镜像已配置，直接使用即可"
-  show ""
+  msg "  ── 包管理器 (pacman) ──"
+  msg "    软件源镜像已配置，直接使用即可"
+  msg ""
 fi
 if [ "$HAS_APT" = "1" ]; then
-  show "  ── 包管理器 (apt) ──"
-  show "    软件源镜像已配置，直接使用即可"
-  show ""
+  msg "  ── 包管理器 (apt) ──"
+  msg "    软件源镜像已配置，直接使用即可"
+  msg ""
+fi
+if [ "$HAS_BREW" = "1" ]; then
+  msg "  ── 包管理器 (Homebrew) ──"
+  msg "    镜像已配置 (TUNA)，环境变量已注入 custom.sh"
+  msg ""
 fi
 
 # ── 最终建议 ────────────────────────────────────
-show "  -----------------------------------------"
-show "  快速刷新全部配置:"
-show "    source ~/.bashrc && exec newgrp docker"
-show ""
-show "  查看完整安装日志:"
-show "    less $LOG_FILE"
-show ""
-show "=============================================="
-show ""
-
-echo ""
-echo "=============================================="
-echo "  全 部 配 置 完 成 ！"
-echo "=============================================="
+msg "  -----------------------------------------"
+msg "  快速刷新全部配置:"
+msg "    source ~/.bashrc && exec newgrp docker"
+msg ""
+msg "  查看完整安装日志:"
+msg "    less $LOG_FILE"
+msg ""
+msg "=============================================="
+msg ""

@@ -1,14 +1,38 @@
 # ── mise 语言管理 ──────────────────────────────────
-# 确保 mise shims 在 PATH 中
-export PATH="$HOME/.local/share/mise/shims:$PATH"
+# 确保 mise 路径在 PATH 中 (针对本地安装方式)
+{{- if eq .os "linux" "darwin" }}
+[ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH"
+[ -d "$HOME/.local/share/mise/shims" ] && export PATH="$HOME/.local/share/mise/shims:$PATH"
 
 if command -v mise &> /dev/null; then
-  # 根据当前 shell 自动激活 mise 环境
+  # 根据当前 shell 自动激活 mise 环境，并增加错误抑制
   if [ -n "$ZSH_VERSION" ]; then
-    eval "$(mise activate zsh)"
+    eval "$(mise activate zsh 2>/dev/null)"
   elif [ -n "$BASH_VERSION" ]; then
-    eval "$(mise activate bash)"
+    eval "$(mise activate bash 2>/dev/null)"
   fi
-  # 使用 basename $SHELL 获取当前 shell 类型 (bash 或 zsh) 并自动激活
-  # eval "$(mise activate "$(basename "$SHELL")")"
 fi
+
+# ── Zsh 插件加载 (如果存在) ──────────────────────────
+# if [ -n "$ZSH_VERSION" ]; then
+#   # 自动加载下载好的插件
+#   for plugin in "zsh-autosuggestions/zsh-autosuggestions.zsh" "zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"; do
+#     if [ -f "$HOME/.zsh_custom/$plugin" ]; then
+#       source "$HOME/.zsh_custom/$plugin"
+#     fi
+#   done
+# fi
+
+# ── Homebrew (macOS) ────────────────────────────────
+{{- if eq .os "darwin" }}
+if [ -f "/usr/local/bin/brew" ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+elif [ -f "/opt/homebrew/bin/brew" ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+fi
+
+# 默认启用国内镜像 (TUNA)
+export HOMEBREW_API_DOMAIN="https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles/api"
+export HOMEBREW_BOTTLE_DOMAIN="https://mirrors.tuna.tsinghua.edu.cn/homebrew-bottles"
+{{- end }}
+{{- end }}

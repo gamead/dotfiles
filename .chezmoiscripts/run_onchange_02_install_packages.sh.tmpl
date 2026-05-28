@@ -1,0 +1,79 @@
+#!/bin/bash
+# packages hash: {{ include ".chezmoidata/packages.yaml" | sha256sum }}
+
+{{ template "scripts_common.sh" . }}
+
+set -euo pipefail
+
+setup_traps "应用软件安装"
+init_env
+
+msg "=================================================="
+msg "开始批量安装应用软件: $(date)"
+msg "=================================================="
+
+# 1. GNOME 托盘扩展激活 (仅 Linux 桌面)
+{{- if and (eq .os "linux") (not .is_wsl) }}
+  if command -v gsettings &>/dev/null && gsettings list-schemas | grep -q "org.gnome.shell"; then
+    msg ">>> 检查 GNOME 托盘扩展状态..."
+    UUID="appindicatorsupport@rgcjonas.gmail.com"
+    ENABLED=$(gsettings get org.gnome.shell enabled-extensions)
+    if [[ "$ENABLED" != *"$UUID"* ]]; then
+      msg ">>> 正在添加 GNOME 托盘扩展..."
+      if [[ "$ENABLED" == "@as []" ]] || [[ "$ENABLED" == "[]" ]]; then
+        gsettings set org.gnome.shell enabled-extensions "['$UUID']"
+      else
+        gsettings set org.gnome.shell enabled-extensions "${ENABLED%]*}, '$UUID']"
+      fi
+    fi
+  fi
+{{- end }}
+
+# 2. 收集当前平台所需包
+PKGS=""
+GUI_PKGS="" # 用于macOS brew --cask特殊处理
+{{- range $name, $platforms := .packages }}
+  {{- $pkg := "" -}}
+  {{- if and $.is_arch (index $platforms "arch") }}{{ $pkg = index $platforms "arch" }}
+  {{- else if and $.is_debian (index $platforms "debian") }}{{ $pkg = index $platforms "debian" }}
+  {{- else if and $.is_redhat (index $platforms "redhat") }}{{ $pkg = index $platforms "redhat" }}
+  {{- else if and (eq $.os "darwin") (index $platforms "darwin") }}{{ $pkg = index $platforms "darwin" }}
+  {{- else if and $.is_wsl (index $platforms "winget") }}{{ $pkg = index $platforms "winget" }}
+  {{- else if index $platforms "common" }}{{ $pkg = index $platforms "common" }}
+  {{- end }}
+  
+  {{- if $pkg }}
+    {{- if and (eq $.os "darwin") (index $platforms "is_gui") }}
+      GUI_PKGS="$GUI_PKGS {{ $pkg }}"
+    {{- else if and $.is_wsl (index $platforms "winget") (index $platforms "is_gui") }}
+      # WSL 环境下的 GUI 软件，通过 winget 安装到 Windows 侧
+      msg ">>> [WSL] 正在通过 winget 安装 GUI 软件: {{ $pkg }}"
+      powershell.exe -Command "winget install --id '{{ $pkg }}' --silent --accept-source-agreements" || true
+    {{- else }}
+      # 普通 CLI 软件或 Linux 原生 GUI 软件
+      PKGS="$PKGS {{ $pkg }}"
+    {{- end }}
+  {{- end }}
+{{- end }}
+
+# 2. 批量执行安装
+{{- $cmd := "" -}}
+{{- if .is_arch }}{{ $cmd = .install_commands.arch }}
+{{- else if .is_debian }}{{ $cmd = .install_commands.debian }}
+{{- else if .is_redhat }}{{ $cmd = .install_commands.redhat }}
+{{- else if eq .os "darwin" }}{{ $cmd = .install_commands.darwin }}
+{{- end }}
+
+if [ -n "$PKGS" ] && [ -n "{{ $cmd }}" ]; then
+  msg ">>> 正在执行安装命令: {{ $cmd }} $PKGS"
+  {{ $cmd }} $PKGS
+fi
+
+{{- if eq .os "darwin" }}
+if [ -n "$GUI_PKGS" ]; then
+  msg ">>> 正在安装 GUI 软件: $GUI_PKGS"
+  {{ .install_commands.darwin_cask }} $GUI_PKGS
+fi
+{{- end }}
+
+msg ">>> 所有应用软件安装完成。"

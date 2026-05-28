@@ -2,11 +2,12 @@
 # mirrors config hash: {{ include ".chezmoiscripts/run_onchange_00_setup_mirrors.sh.tmpl" | sha256sum }}
 # 切换国内软件源（动态并行测速 + 标记驱动型）
 
+{{ template "scripts_common.sh" . }}
+
 set -euo pipefail
 
 # ── 配置 ───────────────────────────────────────────
 MANAGED_TAG="__managed_by_envit__"
-LOG_FILE="$HOME/.chezmoi_install.log"
 
 # 候选镜像列表
 MIRRORS=(
@@ -15,48 +16,18 @@ MIRRORS=(
   "https://mirrors.ustc.edu.cn"
 )
 
-# ── Terminal 反馈 ──────────────────────────────
-msg() {
-  echo "$@" >&2
-  echo "$@" >/dev/tty 2>/dev/null || true
-}
-
 # ── 退出处理 ───────────────────────────────────
 cleanup() {
   [ -d "${TMP_DIR:-}" ] && rm -rf "$TMP_DIR" || true
 }
-on_exit() {
-  local ec=$?
-  cleanup
-  if [ $ec -eq 0 ]; then
-    msg "=================================================="
-    msg "✅ 软件源配置完成!"
-    msg "   详细日志: $LOG_FILE"
-    msg "   无需额外操作，镜像已生效"
-    msg "=================================================="
-  else
-    msg "=================================================="
-    msg "❌ 软件源配置失败 (退出码: $ec)"
-    msg "   排查方向:"
-    msg "     1. 查看日志尾部: tail -30 $LOG_FILE"
-    msg "     2. 检查网络连接和 sudo 权限"
-    msg "     3. 手动测试: curl -I https://mirrors.tuna.tsinghua.edu.cn"
-    msg "=================================================="
-  fi
-}
-trap on_exit EXIT
 
-# 日志轮转（超过 10MB 则归档）
-[ -f "$LOG_FILE" ] && [ "$(stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt 10485760 ] && mv "$LOG_FILE" "${LOG_FILE}.old"
+setup_traps "软件源配置" "cleanup"
 
-# 预先缓存 sudo 凭据（在重定向前，确保终端交互可用）
-sudo -v
+init_env
 
-# 重定向输出到日志
-exec >> "$LOG_FILE" 2>&1
-echo "=================================================="
+msg "=================================================="
 msg "开始执行系统镜像配置脚本: $(date)"
-echo "=================================================="
+msg "=================================================="
 
 # 检查权限
 if [[ $EUID -ne 0 ]] && ! command -v sudo &>/dev/null; then
@@ -75,6 +46,7 @@ get_fastest_mirror() {
   chmod 777 "$TMP_DIR"
   local i=0
   
+  local pids=()
   msg ">>> 正在并行检测镜像速度..."
   for url in "${MIRRORS[@]}"; do
     i=$((i+1))
@@ -84,8 +56,10 @@ get_fastest_mirror() {
       latency=$(LC_ALL=C curl -o /dev/null -s -f -L -w "%{time_connect}" --connect-timeout 2 "$url/" || echo 999)
       echo "$latency $url" > "$TMP_DIR/$i"
     ) &
+    pids+=($!)
   done
-  wait
+  wait "${pids[@]}"
+
   
   local best
   best=$(cat "$TMP_DIR"/* | sort -n | head -n 1)
@@ -209,8 +183,12 @@ if command -v pacman &>/dev/null; then
     msg ">>> 网络不可达，跳过 archlinuxcn 配置。"
   fi
   msg ">>> 正在同步软件包数据库..."
-  sudo pacman -Sy --noconfirm || true
-  msg ">>> 软件包数据库同步完成"
+  # 如果同步失败，打印警告但不终止整个脚本，允许继续配置
+  if ! sudo pacman -Sy --noconfirm; then
+    msg "⚠️  警告: 软件包数据库同步失败，请检查网络或镜像源。"
+  else
+    msg ">>> 软件包数据库同步完成"
+  fi
 
 elif command -v apt-get &>/dev/null; then
   # ── Debian / Ubuntu ───────────────────────────────
@@ -287,5 +265,35 @@ elif command -v dnf &>/dev/null || command -v yum &>/dev/null; then
     sudo "$PM" makecache
   fi
 fi
-exit 0
+
+{{- else if eq .os "darwin" }}
+# ── macOS Homebrew 镜像配置 ─────────────────────────
+if command -v brew &>/dev/null; then
+  if ! FASTEST_URL=$(get_mirror); then
+    msg ">>> 跳过 Homebrew 镜像配置。"
+  else
+    msg ">>> 正在配置 Homebrew 镜像 (最优: ${FASTEST_URL})..."
+    
+    # 替换规则：
+    # 1. brew.git (Homebrew 核心)
+    # 2. homebrew-core.git
+    # 3. homebrew-cask.git
+    
+    export HOMEBREW_API_DOMAIN="${FASTEST_URL}/homebrew-bottles/api"
+    export HOMEBREW_BOTTLE_DOMAIN="${FASTEST_URL}/homebrew-bottles"
+    
+    # 尝试设置环境变量到 shell 配置文件
+    BREW_REPO=$(brew --repo)
+    git -C "$BREW_REPO" remote set-url origin "${FASTEST_URL}/homebrew/brew.git" || true
+    
+    CORE_REPO="$(brew --repo homebrew/core)"
+    [ -d "$CORE_REPO" ] && git -C "$CORE_REPO" remote set-url origin "${FASTEST_URL}/homebrew/homebrew-core.git" || true
+    
+    CASK_REPO="$(brew --repo homebrew/cask)"
+    [ -d "$CASK_REPO" ] && git -C "$CASK_REPO" remote set-url origin "${FASTEST_URL}/homebrew/homebrew-cask.git" || true
+    
+    msg ">>> Homebrew 镜像配置完成"
+  fi
+fi
 {{- end }}
+exit 0

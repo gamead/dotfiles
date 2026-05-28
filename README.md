@@ -29,44 +29,35 @@ sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply https
 
 ### v2rayA 透明代理
 
-初始化脚本自动在 Arch Linux 上安装并配置 [v2rayA](https://v2raya.org) + [Xray-core](https://github.com/XTLS/Xray-core)，接管整机流量：
+初始化脚本自动安装并配置 [v2rayA](https://v2raya.org) + [Xray-core](https://github.com/XTLS/Xray-core)，接管整机流量：
 
-*   自动注册管理员账号（密码随机生成，安装完成后打印在终端）
-*   开启 TPROXY 透明代理 + whitelist 分流（国内直连、国外代理）
-*   配置 systemd `CAP_NET_ADMIN` 权限
+*   **跨平台支持**: 支持 Arch, Debian/Ubuntu, RedHat 系及 macOS (仅安装)。
+*   **自动化配置**: 自动注册管理员账号（密码随机生成/或由引导输入）。
+*   **分流策略**: 开启 TPROXY 透明代理 + whitelist 分流（国内直连、国外代理）。
+*   **权限增强**: 自动配置 systemd `CAP_NET_ADMIN` 权限。
 
-如需自动导入订阅/节点链接，在运行初始化前设置环境变量：
-
-```bash
-V2RAYA_SUBSCRIBE_URL="https://your-subscription-url" sh -c "$(curl -fsLS get.chezmoi.io)" -- -b "$HOME/.local/bin" init --apply https://github.com/你的用户名/dotfiles
-```
-
-安装完成后通过 `http://localhost:2017` 访问 Web 管理界面。
+> **💡 提示**: 在执行 `chezmoi init` 时，脚本会提示您输入订阅链接。如果您暂时没有链接，可以直接按回车跳过，稍后在 Web 界面 (`http://localhost:2017`) 手动配置。
 
 ## 📦 包管理配置说明 (.chezmoidata/packages.yaml)
 
-本项目的软件安装遵循**数据驱动**原则，通过 `packages.yaml` 集中管理所有软件，安装脚本会自动读取此文件并根据当前平台进行安装。
+本项目的软件安装遵循**数据驱动**原则，通过 `packages.yaml` 集中管理所有软件。
 
 ### 配置结构
 该文件由三部分组成：
 
-1. **`cli`**: 基础 CLI 工具定义。
-   - 使用 `common` 键名可同时匹配所有平台。
-   - 或指定平台名称（`arch`, `debian`, `darwin`）匹配特定包名。
+1. **`infrastructure`**: 核心基础设施服务（如 v2rayA）。
 2. **`install_commands`**: 定义不同平台的包管理器执行前缀。
-   - 示例：`arch: "yay -S --needed --noconfirm"`。
-3. **`gui_apps`**: GUI 软件清单，支持跨平台映射。
+3. **`packages`**: 通用软件清单，支持 `is_gui: true` 标记以处理 macOS Cask 等特殊安装。
 
 ### 添加软件指南
-只需在 `.chezmoidata/packages.yaml` 中添加一行配置即可。例如添加一款名为 `myapp` 的软件：
+只需在 `.chezmoidata/packages.yaml` 的 `packages` 节点下添加一行配置即可。例如添加一款名为 `myapp` 的软件：
 
 ```yaml
-gui_apps:
   myapp:
     arch: myapp-bin     # Arch/Manjaro 下的包名
     debian: myapp       # Debian/Ubuntu 下的包名
     darwin: myapp       # macOS 下的包名
-    winget: MyCompany.MyApp # Windows 下的 winget 包 ID
+    winget: MyCompany.MyApp # WSL/Windows 下的 winget 包 ID
 ```
 
 修改并保存后，运行 `chezmoi apply` 或 `chezmoi update`，脚本会自动检测改动并执行安装。
@@ -75,19 +66,19 @@ gui_apps:
 
 ```text
 dotfiles/
-├── .chezmoidata/           # 外部数据配置
-│   └── packages.yaml       # 维护各发行版下的软件安装包列表
-├── .chezmoiscripts/        # 自动化执行脚本 (基于 bash 幂等实现)
-│   ├── run_onchange_00_setup_mirrors.sh.tmpl   # 智能镜像源测速与切换
-│   ├── run_onchange_01_install_cli.sh.tmpl     # CLI 工具自动化安装
-│   ├── run_onchange_02_install_gui.sh.tmpl     # GUI 应用与桌面环境配置
-│   ├── run_onchange_03_setup_docker_mirror.sh.tmpl # Docker 加速配置
-│   ├── run_onchange_04_setup_shell_source.sh.tmpl  # Shell 自定义插件挂载
-│   └── run_onchange_05_setup_v2raya.sh.tmpl        # v2rayA 透明代理自动部署
+├── .chezmoidata/           # 外部数据配置 (packages.yaml)
+├── .chezmoitemplates/      # 公共脚本模板 (scripts_common.sh)
+├── .chezmoiscripts/        # 自动化执行脚本
+│   ├── run_onchange_00_setup_mirrors.sh.tmpl       # 智能镜像源测速与切换
+│   ├── run_onchange_01_setup_infrastructure.sh.tmpl # 核心基础设施与 v2rayA
+│   ├── run_onchange_02_install_packages.sh.tmpl    # 数据驱动的软件包安装
+│   ├── run_onchange_03_setup_docker_mirror.sh.tmpl # Docker 加速与权限配置
+│   ├── run_onchange_04_setup_shell_source.sh.tmpl  # 注入 custom.sh 到 shell rc
+│   └── run_onchange_99_summary.sh.tmpl             # 全流程安装汇总提示
 ├── dot_config/             # 标准 XDG 配置目录
 │   ├── fcitx5/             # 输入法配置
-│   ├── mise/               # 编程语言版本管理工具 (Node/Python/Go)
-│   └── shell/              # 自定义 Shell 环境插件
+│   ├── mise/               # 编程语言版本管理工具 (Node/Python/Go/Java)
+│   └── shell/              # 自定义 Shell 环境增强
 └── dot_gitconfig.tmpl      # 全局 Git 配置模板
 ```
 

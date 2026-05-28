@@ -2,46 +2,19 @@
 # 配置 Docker 国内镜像加速
 # 仅在 Linux 上执行（macOS Docker Desktop 在 GUI 里配置）
 
+{{ template "scripts_common.sh" . }}
+
 set -euo pipefail
 
-# ── 日志配置 ───────────────────────────────────────
-LOG_FILE="$HOME/.chezmoi_install.log"
-sudo -v
-exec > >(tee -a "$LOG_FILE") 2>&1
-
-# ── Terminal 反馈 ──────────────────────────────
-msg() {
-  echo "$@" >&2
-  echo "$@" >/dev/tty 2>/dev/null || true
-}
-
-# ── 退出处理 ───────────────────────────────────
-on_exit() {
-  local ec=$?
-  if [ $ec -eq 0 ]; then
-    msg "=================================================="
-    msg "✅ Docker 镜像配置完成!"
-    msg "   详细日志: $LOG_FILE"
-    msg "   使 docker 组生效: newgrp docker  或注销重新登录"
-    msg "=================================================="
-  else
-    msg "=================================================="
-    msg "❌ Docker 镜像配置失败 (退出码: $ec)"
-    msg "   排查方向:"
-    msg "     1. 查看日志尾部: tail -30 $LOG_FILE"
-    msg "     2. 确认 Docker 是否已安装: docker info"
-    msg "     3. 检查 sudo 权限"
-    msg "=================================================="
-  fi
-}
-trap on_exit EXIT
+setup_traps "Docker 镜像"
+init_env
 
 msg "=================================================="
 msg "开始执行 Docker 镜像配置脚本: $(date)"
 msg "=================================================="
 
-{{- if eq .chezmoi.os "linux" }}
-{{- if not (.chezmoi.kernel.osrelease | lower | contains "microsoft") }}
+{{- if eq .os "linux" }}
+{{- if not .is_wsl }}
 
 # WSL2 跳过，Docker 装在 Windows 侧
 

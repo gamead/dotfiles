@@ -1,0 +1,134 @@
+#!/bin/bash
+# packages.yaml hash: {{ include ".chezmoidata/packages.yaml" | sha256sum }}
+# config_hash: {{ (print .v2raya_nodes .v2raya_admin_password) | sha256sum }}
+
+{{ template "scripts_common.sh" . }}
+
+set -euo pipefail
+
+setup_traps "基础设施及 v2rayA"
+init_env
+
+msg "=================================================="
+msg "开始配置基础设施: $(date)"
+msg "=================================================="
+
+# ── 1. 动态生成包列表 ──────────────────────────────
+INFRA_PKGS=""
+{{- range $name, $platforms := .infrastructure }}
+  {{- $pkg := "" -}}
+  {{- if and $.is_arch (index $platforms "arch") }}{{ $pkg = index $platforms "arch" }}
+  {{- else if and $.is_debian (index $platforms "debian") }}{{ $pkg = index $platforms "debian" }}
+  {{- else if and $.is_redhat (index $platforms "redhat") }}{{ $pkg = index $platforms "redhat" }}
+  {{- else if and (eq $.os "darwin") (index $platforms "darwin") }}{{ $pkg = index $platforms "darwin" }}
+  {{- else if index $platforms "common" }}{{ $pkg = index $platforms "common" }}
+  {{- end }}
+  {{- if $pkg }}
+INFRA_PKGS="$INFRA_PKGS {{ $pkg }}"
+  {{- end }}
+{{- end }}
+INFRA_PKGS=$(echo "$INFRA_PKGS" | xargs)
+
+if [ -n "$INFRA_PKGS" ]; then
+  msg ">>> [1/6] 安装基础设施包: $INFRA_PKGS"
+  {{- if .is_arch }}
+    sudo pacman -S --needed --noconfirm base-devel git
+    if ! command -v yay &>/dev/null; then
+       msg "安装 yay (AUR helper)..."
+       git clone https://aur.archlinux.org/yay.git /tmp/yay && (cd /tmp/yay && makepkg -si --noconfirm) && rm -rf /tmp/yay
+    fi
+    yay -S --needed --noconfirm $INFRA_PKGS
+  {{- else if .is_debian }}
+    [ -z "$(find /var/lib/apt/lists -mmin -60 2>/dev/null)" ] && sudo apt-get update -q || true
+    sudo apt-get install -y $INFRA_PKGS
+  {{- else if .is_redhat }}
+    sudo dnf install -y $INFRA_PKGS
+  {{- else if eq .os "darwin" }}
+    brew install $INFRA_PKGS
+  {{- end }}
+fi
+
+# ── 2. v2rayA 配置 (仅 Linux) ───────────────────────
+{{- if and (eq .os "linux") (not .is_wsl) }}
+if command -v v2raya &>/dev/null; then
+  msg ">>> [2/6] 配置 v2rayA systemd 网络权限..."
+  sudo mkdir -p /etc/systemd/system/v2raya.service.d
+  sudo tee /etc/systemd/system/v2raya.service.d/override.conf > /dev/null << 'OVERRIDE'
+[Service]
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+OVERRIDE
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now v2raya
+
+  msg ">>> [3/6] 等待 API 就绪..."
+  API_READY=false
+  for i in $(seq 1 30); do
+    if curl -sf --noproxy "*" http://localhost:2017/api/version >/dev/null 2>&1; then API_READY=true; break; fi
+    sleep 2
+  done
+
+  if [ "$API_READY" = true ]; then
+    msg ">>> [4/6] 注册管理员并登录..."
+    ADMIN_PASS="{{ .v2raya_admin_password }}"
+    
+    # 使用安全的载荷生成方式
+    PAYLOAD=$(printf '{"username":"admin","password":"%s"}' "$ADMIN_PASS")
+    curl -sf --noproxy "*" -X POST http://localhost:2017/api/account -H "Content-Type: application/json" -d "$PAYLOAD" >/dev/null 2>&1 || true
+    
+    TOKEN=$(curl -sf --noproxy "*" -X POST http://localhost:2017/api/login -H "Content-Type: application/json" -d "$PAYLOAD" | sed 's/.*"token":"\([^"]*\)".*/\1/')
+
+    if [ -n "$TOKEN" ]; then
+      msg ">>> [5/6] 配置透明代理及导入节点 (幂等)..."
+      curl -sf --noproxy "*" -X PUT http://localhost:2017/api/setting -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{"transparent": "whitelist","transparentType": "tproxy","ipforward": true,"rulePortMode": "whitelist"}' >/dev/null
+      
+      V2RAYA_NODES="{{ .v2raya_nodes }}"
+      if [ -n "$V2RAYA_NODES" ]; then
+        IS_EXISTS=false
+        if curl -sf --noproxy "*" -X GET http://localhost:2017/api/server -H "Authorization: Bearer $TOKEN" | grep -Fq "$V2RAYA_NODES" || \
+           curl -sf --noproxy "*" -X GET http://localhost:2017/api/subscription -H "Authorization: Bearer $TOKEN" | grep -Fq "$V2RAYA_NODES"; then
+          IS_EXISTS=true
+        fi
+
+        if [ "$IS_EXISTS" = false ]; then
+          msg "    正在导入新节点/订阅..."
+          IMPORT_PAYLOAD=$(printf '{"url":"%s"}' "$V2RAYA_NODES")
+          curl -sf --noproxy "*" -X POST http://localhost:2017/api/import -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$IMPORT_PAYLOAD" >/dev/null || true
+          curl -sf --noproxy "*" -X POST http://localhost:2017/api/v2ray -H "Authorization: Bearer $TOKEN" >/dev/null || true
+        fi
+      fi
+    fi
+  else
+    msg "⚠️  v2rayA 服务未就绪，跳过配置"
+  fi
+fi
+{{- end }}
+
+# ── 3. 安装 mise (开发工具管理器) ───────────────────────
+msg ">>> [6/6] 检查并安装 mise..."
+if ! command -v mise &>/dev/null; then
+  msg "    正在安装 mise..."
+  mkdir -p "$HOME/.local/bin"
+  # 使用官方 curl 安装，确保使用当前用户权限执行
+  curl https://mise.run | sh
+fi
+
+# 确保 mise 命令可用并刷新指令索引
+export PATH="$HOME/.local/bin:$PATH"
+hash -r 2>/dev/null || true
+
+# 信任仓库中的配置
+SOURCE_CONFIG="{{ joinPath .chezmoi.sourceDir "dot_config/mise/config.toml" }}"
+if [ -f "$SOURCE_CONFIG" ] && command -v mise &>/dev/null; then
+    msg "    正在信任 mise 配置文件: $SOURCE_CONFIG"
+    mise trust "$SOURCE_CONFIG"
+    
+    msg "    正在使用 mise 安装/更新开发工具..."
+    # 确保 shim 路径在 PATH 中，以便工具安装后可用
+    export PATH="$HOME/.local/share/mise/shims:$PATH"
+    
+    # 直接运行安装，不使用 spinner，以彻底排除进程竞争导致的 exit status 1
+    MISE_CONFIG_FILE="$SOURCE_CONFIG" mise install --yes
+    
+    msg ">>> Mise 工具链配置完成"
+fi

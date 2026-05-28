@@ -3,56 +3,76 @@
 #  修改此文件将自动触发 chezmoi 重新运行对应的安装脚本
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# ── 1. 基础系统工具 ────────
-# 逻辑名称: { 平台: 包名 }
-cli:
-  git:      { common: git }
-  # zsh:      { common: zsh }
+# ── 1. 基础设施 ──────────────────────────────────
+# 必须最先安装并运行的服务和元工具
+infrastructure:
+  # 元工具 (确保脚本逻辑运行的基础)
   curl:     { common: curl }
-  # ca:       { common: ca-certificates }
-  # starship: { common: starship }
-  # ripgrep:  { common: ripgrep }
-  # fzf:      { common: fzf }
-  # tmux:     { common: tmux }
-  # bat:      { arch: bat, debian: bat, darwin: bat }
-  # fd:       { arch: fd, debian: fd-find, darwin: fd }
-  # vm-tools: { arch: open-vm-tools, debian: open-vm-tools }
-  # vbox-utils: { arch: virtualbox-guest-utils, debian: virtualbox-guest-utils }
+  git:      { common: git }
+  wget:     { common: wget }
+  
+  # 核心服务
+  v2raya:
+    arch: v2raya xray
+    debian: v2raya
+    redhat: v2raya
+    darwin: v2raya/v2raya/v2raya
+    winget: m-creations.v2raya
 
-# ── 2. 安装指令定义 ──────────────────────────────────
+# ── 2. 安装指令 definition ──────────────────────────────────
 # 定义不同平台/包管理器的安装前缀
 install_commands:
-  darwin: "brew install --cask"
+  darwin: "brew install"
+  darwin_cask: "brew install --cask"
   arch: "yay -S --needed --noconfirm"
   debian: "sudo apt-get install -y"
+  redhat: "sudo dnf install -y"
   winget: "winget install --silent --accept-source-agreements --accept-package-agreements"
 
-# ── 3. GUI 软件清单及平台映射 ───────────────────────
-# key: 逻辑名称
-# value: 各平台对应的真实包名
-gui_apps:
+# ── 3. 通用软件包清单 ──────────────────────────────
+# 此时安装脚本已经具备了 curl/git 等基础环境
+packages:
+  # --- 基础工具 ---
+  # git, curl, wget 已移至 infrastructure
+  # jq:       { common: jq }
+  # tree:     { common: tree }
+
+  # htop:     { common: htop }
+  # tmux:     { common: tmux }
+
   # --- 输入法组件 (仅在 Linux 桌面有效) ---
   fcitx5:
-    # arch: fcitx5 fcitx5-chinese-addons fcitx5-configtool fcitx5-gtk fcitx5-qt fcitx5-im fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
-    # debian: fcitx5 fcitx5-chinese-addons fcitx5-config-qt fcitx5-frontend-gtk3 fcitx5-frontend-qt5 fcitx5-rime
     arch: fcitx5-im fcitx5-chinese-addons fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
     debian: fcitx5-im fcitx5-chinese-addons fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
-  
+    redhat: fcitx5 fcitx5-chinese-addons fcitx5-rime fcitx5-autostart
+    is_gui: true
+
   gnome-tray:
     arch: gnome-shell-extension-appindicator
     debian: gnome-shell-extension-appindicator
-  
+    redhat: gnome-shell-extension-appindicator
+    is_gui: true
+
   # --- 常用软件 ---
   vscode:
     darwin: visual-studio-code
     arch: visual-studio-code-bin
     debian: code
+    redhat: code
     winget: Microsoft.VisualStudioCode
+    is_gui: true
+
   docker:
     darwin: docker
     arch: docker
     debian: docker-ce
+    redhat: docker-ce
     winget: Docker.DockerDesktop
+    is_gui: true
 
-  v2raya:
-    arch: v2raya xray
+  chrome:
+    darwin: google-chrome
+    arch: google-chrome
+    debian: google-chrome-stable
+    winget: Google.Chrome
+    is_gui: true
