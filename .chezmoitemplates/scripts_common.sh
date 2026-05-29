@@ -10,6 +10,30 @@ msg() {
   echo "$@" >> "$LOG_FILE"
 }
 
+# ── 智能 sudo 包装器 ────────────────────────────────
+# 如果是 root 则直接运行，否则使用 sudo
+run_sudo() {
+  if [ "$EUID" -eq 0 ]; then
+    "$@"
+  elif command -v sudo &>/dev/null; then
+    sudo "$@"
+  else
+    msg "❌ 错误: 需要 root 权限但未找到 sudo"
+    return 1
+  fi
+}
+
+# ── 等待 APT 锁 ───────────────────────────────────
+# 解决 Debian 系自动更新导致的锁竞争
+wait_for_apt_lock() {
+  if command -v apt-get &>/dev/null; then
+    while run_sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+      msg ">>> 等待 apt 锁释放 (可能后台正在更新)..."
+      sleep 3
+    done
+  fi
+}
+
 # ── 退出处理 ───────────────────────────────────────
 setup_traps() {
   _MODULE_NAME="$1"
@@ -69,8 +93,8 @@ init_env() {
   export NO_PROXY="$no_proxy"
   
   # 5. 预热 sudo 权限
-  if [ "$EUID" -ne 0 ] && command -v sudo &>/dev/null; then
-    sudo -v
+  if [ "$EUID" -ne 0 ]; then
+    run_sudo -v
   fi
   
   # 6. 重定向输出到日志

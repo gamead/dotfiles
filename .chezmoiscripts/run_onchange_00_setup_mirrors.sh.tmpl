@@ -98,7 +98,7 @@ install_archlinuxcn_keyring() {
   local tmpconfig
   tmpconfig=$(mktemp)
   sed 's/SigLevel.*/SigLevel = Optional TrustAll/' /etc/pacman.conf > "$tmpconfig"
-  sudo pacman -Sy --noconfirm --config "$tmpconfig" archlinuxcn-keyring
+  run_sudo pacman -Sy --noconfirm --config "$tmpconfig" archlinuxcn-keyring
   rm -f "$tmpconfig"
 }
 
@@ -120,8 +120,8 @@ setup_archlinuxcn() {
   fi
 
   local tmp_pacman=$(mktemp)
-  sudo cp /etc/pacman.conf "$tmp_pacman"
-  sudo chmod 666 "$tmp_pacman"
+  run_sudo cp /etc/pacman.conf "$tmp_pacman"
+  run_sudo chmod 666 "$tmp_pacman"
 
   # Remove old envit-managed block before re-applying
   if grep -q "${MANAGED_TAG}" "$tmp_pacman"; then
@@ -132,7 +132,7 @@ setup_archlinuxcn() {
       skip { next }
       { print }
     ' "$tmp_pacman" > "${tmp_pacman}.clean"
-    sudo mv "${tmp_pacman}.clean" "$tmp_pacman"
+    run_sudo mv "${tmp_pacman}.clean" "$tmp_pacman"
   fi
 
   cat << EOF >> "$tmp_pacman"
@@ -141,7 +141,7 @@ setup_archlinuxcn() {
 [archlinuxcn]
 Server = ${mirror_url}/archlinuxcn/\$arch
 EOF
-  sudo mv "$tmp_pacman" /etc/pacman.conf
+  run_sudo mv "$tmp_pacman" /etc/pacman.conf
   install_archlinuxcn_keyring
 }
 
@@ -155,8 +155,8 @@ if command -v pacman &>/dev/null; then
       msg ">>> Manjaro 软件源已由 envit 管理，跳过。"
     else
       msg ">>> 检测到 Manjaro，正在切换国内镜像源..."
-      sudo pacman-mirrors --country China --api --protocol https || true
-      echo "# ${MANAGED_TAG}" | sudo tee -a /etc/pacman.d/mirrorlist > /dev/null
+      run_sudo pacman-mirrors --country China --api --protocol https || true
+      echo "# ${MANAGED_TAG}" | run_sudo tee -a /etc/pacman.d/mirrorlist > /dev/null
     fi
   else
     if grep -q "${MANAGED_TAG}" /etc/pacman.d/mirrorlist 2>/dev/null; then
@@ -174,7 +174,7 @@ if command -v pacman &>/dev/null; then
           fi
         done
       } > "$tmp_mirror"
-      sudo mv "$tmp_mirror" /etc/pacman.d/mirrorlist
+      run_sudo mv "$tmp_mirror" /etc/pacman.d/mirrorlist
     fi
   fi
   if FASTEST_URL=$(get_mirror); then
@@ -184,7 +184,7 @@ if command -v pacman &>/dev/null; then
   fi
   msg ">>> 正在同步软件包数据库..."
   # 如果同步失败，打印警告但不终止整个脚本，允许继续配置
-  if ! sudo pacman -Sy --noconfirm; then
+  if ! run_sudo pacman -Sy --noconfirm; then
     msg "⚠️  警告: 软件包数据库同步失败，请检查网络或镜像源。"
   else
     msg ">>> 软件包数据库同步完成"
@@ -195,6 +195,7 @@ elif command -v apt-get &>/dev/null; then
   if ! FASTEST_URL=$(get_mirror); then
     msg ">>> 跳过 apt 软件源配置。"
   else
+    wait_for_apt_lock
     shopt -s nullglob
     SOURCES_FILES=(/etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources)
     
@@ -207,23 +208,23 @@ elif command -v apt-get &>/dev/null; then
       
       msg ">>> 正在更新 $src (最优: ${FASTEST_URL})..."
       local tmp_src=$(mktemp)
-      sudo cp "$src" "$tmp_src"
+      run_sudo cp "$src" "$tmp_src"
       
       # 替换传统格式
-      sudo sed -E -i "s@https?://([^/ ]+)\.debian\.org@${FASTEST_URL}@g" "$tmp_src"
-      sudo sed -E -i "s@https?://([^/ ]+)\.ubuntu\.com@${FASTEST_URL}@g" "$tmp_src"
-      sudo sed -E -i "s@https?://deb\.debian\.org@${FASTEST_URL}@g" "$tmp_src"
+      run_sudo sed -E -i "s@https?://([^/ ]+)\.debian\.org@${FASTEST_URL}@g" "$tmp_src"
+      run_sudo sed -E -i "s@https?://([^/ ]+)\.ubuntu\.com@${FASTEST_URL}@g" "$tmp_src"
+      run_sudo sed -E -i "s@https?://deb\.debian\.org@${FASTEST_URL}@g" "$tmp_src"
       # 兼容 DEB822 格式
-      sudo sed -E -i "s@URIs: https?://([^/ ]+)\.debian\.org@URIs: ${FASTEST_URL}@g" "$tmp_src"
-      sudo sed -E -i "s@URIs: https?://([^/ ]+)\.ubuntu\.com@URIs: ${FASTEST_URL}@g" "$tmp_src"
+      run_sudo sed -E -i "s@URIs: https?://([^/ ]+)\.debian\.org@URIs: ${FASTEST_URL}@g" "$tmp_src"
+      run_sudo sed -E -i "s@URIs: https?://([^/ ]+)\.ubuntu\.com@URIs: ${FASTEST_URL}@g" "$tmp_src"
       
-      sudo chmod 666 "$tmp_src"
+      run_sudo chmod 666 "$tmp_src"
       echo "# ${MANAGED_TAG}" >> "$tmp_src"
-      sudo mv "$tmp_src" "$src"
+      run_sudo mv "$tmp_src" "$src"
     done
     shopt -u nullglob
     
-    sudo apt-get update -q
+    run_sudo apt-get update -q
   fi
 
 elif command -v dnf &>/dev/null || command -v yum &>/dev/null; then
@@ -242,27 +243,27 @@ elif command -v dnf &>/dev/null || command -v yum &>/dev/null; then
       
       msg ">>> 正在更新 $repo ..."
       local tmp_repo=$(mktemp)
-      sudo cp "$repo" "$tmp_repo"
+      run_sudo cp "$repo" "$tmp_repo"
       
       # 处理 Fedora
       if [ -f /etc/fedora-release ]; then
-        sudo sed -E -e 's|^metalink=|#metalink=|g' \
+        run_sudo sed -E -e 's|^metalink=|#metalink=|g' \
              -e "s|^#?baseurl=https?://download\.fedoraproject\.org/pub/fedora/linux|baseurl=${FASTEST_URL}/fedora/linux|g" \
              -i "$tmp_repo" || true
       # 处理 CentOS / RHEL
       elif [ -f /etc/centos-release ] || [ -f /etc/redhat-release ]; then
-        sudo sed -E -e 's|^mirrorlist=|#mirrorlist=|g' \
+        run_sudo sed -E -e 's|^mirrorlist=|#mirrorlist=|g' \
              -e "s|^#?baseurl=https?://mirror\.centos\.org/centos|baseurl=${FASTEST_URL}/centos|g" \
              -i "$tmp_repo" || true
       fi
       
-      sudo chmod 666 "$tmp_repo"
+      run_sudo chmod 666 "$tmp_repo"
       echo "# ${MANAGED_TAG}" >> "$tmp_repo"
-      sudo mv "$tmp_repo" "$repo"
+      run_sudo mv "$tmp_repo" "$repo"
     done
     shopt -u nullglob
     
-    sudo "$PM" makecache
+    run_sudo "$PM" makecache
   fi
 fi
 

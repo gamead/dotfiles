@@ -1,0 +1,16 @@
+{{- /*
+  Template to get the package name for the current platform.
+  Usage: {{ template "get_pkg_name" (dict "root" . "item" $platforms) }}
+*/ -}}
+{{- define "get_pkg_name" -}}
+  {{- $platforms := .item -}}
+  {{- $pkg := "" -}}
+  {{- if and .root.is_arch (index $platforms "arch") }}{{ $pkg = index $platforms "arch" }}
+  {{- else if and .root.is_debian (index $platforms "debian") }}{{ $pkg = index $platforms "debian" }}
+  {{- else if and .root.is_redhat (index $platforms "redhat") }}{{ $pkg = index $platforms "redhat" }}
+  {{- else if and (eq .root.os "darwin") (index $platforms "darwin") }}{{ $pkg = index $platforms "darwin" }}
+  {{- else if and .root.is_wsl (index $platforms "winget") }}{{ $pkg = index $platforms "winget" }}
+  {{- else if index $platforms "common" }}{{ $pkg = index $platforms "common" }}
+  {{- end -}}
+  {{- $pkg -}}
+{{- end -}}

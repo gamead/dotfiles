@@ -3,6 +3,7 @@
 # config_hash: {{ (print .v2raya_nodes .v2raya_admin_password) | sha256sum }}
 
 {{ template "scripts_common.sh" . }}
+{{ template "get_pkg_name" . }}
 
 set -euo pipefail
 
@@ -13,16 +14,41 @@ msg "=================================================="
 msg "开始配置基础设施: $(date)"
 msg "=================================================="
 
+# ── 0. 平台特定预处理 ──────────────────────────────
+{{- if eq .os "darwin" }}
+if ! command -v brew &>/dev/null; then
+  msg ">>> 正在安装 Homebrew..."
+  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  eval "$(/opt/homebrew/bin/brew shellenv)" || eval "$(/usr/local/bin/brew shellenv)"
+fi
+{{- end }}
+
+{{- if .is_debian }}
+# 为 Docker 和 VSCode 添加第三方源 (如果需要)
+if ! [ -f /etc/apt/sources.list.d/docker.list ] && echo "{{ range $name, $platforms := .packages }}{{ $name }} {{ end }}" | grep -q "docker"; then
+  msg ">>> 正在配置 Docker 官方仓库..."
+  wait_for_apt_lock
+  run_sudo apt-get update -yq
+  run_sudo apt-get install -yq ca-certificates curl gnupg
+  run_sudo install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/debian/gpg | run_sudo gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+  run_sudo chmod a+r /etc/apt/keyrings/docker.gpg
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | run_sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+  run_sudo apt-get update -yq
+fi
+
+if ! [ -f /etc/apt/sources.list.d/vscode.list ] && echo "{{ range $name, $platforms := .packages }}{{ $name }} {{ end }}" | grep -q "vscode"; then
+  msg ">>> 正在配置 VSCode 官方仓库..."
+  curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | run_sudo gpg --dearmor --yes -o /etc/apt/keyrings/microsoft-archive-keyring.gpg
+  run_sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
+  run_sudo apt-get update -yq
+fi
+{{- end }}
+
 # ── 1. 动态生成包列表 ──────────────────────────────
 INFRA_PKGS=""
 {{- range $name, $platforms := .infrastructure }}
-  {{- $pkg := "" -}}
-  {{- if and $.is_arch (index $platforms "arch") }}{{ $pkg = index $platforms "arch" }}
-  {{- else if and $.is_debian (index $platforms "debian") }}{{ $pkg = index $platforms "debian" }}
-  {{- else if and $.is_redhat (index $platforms "redhat") }}{{ $pkg = index $platforms "redhat" }}
-  {{- else if and (eq $.os "darwin") (index $platforms "darwin") }}{{ $pkg = index $platforms "darwin" }}
-  {{- else if index $platforms "common" }}{{ $pkg = index $platforms "common" }}
-  {{- end }}
+  {{- $pkg := template "get_pkg_name" (dict "root" $ "item" $platforms) -}}
   {{- if $pkg }}
 INFRA_PKGS="$INFRA_PKGS {{ $pkg }}"
   {{- end }}
@@ -32,17 +58,29 @@ INFRA_PKGS=$(echo "$INFRA_PKGS" | xargs)
 if [ -n "$INFRA_PKGS" ]; then
   msg ">>> [1/6] 安装基础设施包: $INFRA_PKGS"
   {{- if .is_arch }}
-    sudo pacman -S --needed --noconfirm base-devel git
+    run_sudo pacman -S --needed --noconfirm base-devel git
     if ! command -v yay &>/dev/null; then
        msg "安装 yay (AUR helper)..."
-       git clone https://aur.archlinux.org/yay.git /tmp/yay && (cd /tmp/yay && makepkg -si --noconfirm) && rm -rf /tmp/yay
+       if [ "$EUID" -eq 0 ]; then
+         msg "⚠️  警告: 无法在 root 用户下直接安装 yay，请稍后手动安装。"
+       else
+         TMP_YAY=$(mktemp -d)
+         git clone https://aur.archlinux.org/yay.git "$TMP_YAY"
+         (cd "$TMP_YAY" && makepkg -si --noconfirm)
+         rm -rf "$TMP_YAY"
+       fi
     fi
-    yay -S --needed --noconfirm $INFRA_PKGS
+    if command -v yay &>/dev/null; then
+      yay -S --needed --noconfirm $INFRA_PKGS
+    else
+      run_sudo pacman -S --needed --noconfirm $INFRA_PKGS
+    fi
   {{- else if .is_debian }}
-    [ -z "$(find /var/lib/apt/lists -mmin -60 2>/dev/null)" ] && sudo apt-get update -q || true
-    sudo apt-get install -y $INFRA_PKGS
+    wait_for_apt_lock
+    [ -z "$(find /var/lib/apt/lists -mmin -60 2>/dev/null)" ] && run_sudo apt-get update -q || true
+    run_sudo apt-get install -y $INFRA_PKGS
   {{- else if .is_redhat }}
-    sudo dnf install -y $INFRA_PKGS
+    run_sudo dnf install -y $INFRA_PKGS
   {{- else if eq .os "darwin" }}
     brew install $INFRA_PKGS
   {{- end }}
@@ -52,14 +90,14 @@ fi
 {{- if and (eq .os "linux") (not .is_wsl) }}
 if command -v v2raya &>/dev/null; then
   msg ">>> [2/6] 配置 v2rayA systemd 网络权限..."
-  sudo mkdir -p /etc/systemd/system/v2raya.service.d
+  run_sudo mkdir -p /etc/systemd/system/v2raya.service.d
   sudo tee /etc/systemd/system/v2raya.service.d/override.conf > /dev/null << 'OVERRIDE'
 [Service]
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 OVERRIDE
-  sudo systemctl daemon-reload
-  sudo systemctl enable --now v2raya
+  run_sudo systemctl daemon-reload
+  run_sudo systemctl enable --now v2raya
 
   msg ">>> [3/6] 等待 API 就绪..."
   API_READY=false

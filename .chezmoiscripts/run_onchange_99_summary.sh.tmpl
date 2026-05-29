@@ -14,6 +14,21 @@ msg "=============================================="
 msg "  ✅  🎉  全 部 配 置 完 成 ！"
 msg "=============================================="
 msg ""
+
+# ── 安装统计 ──────────────────────────────────
+if [ -f "$LOG_FILE" ]; then
+  SUCCESS_COUNT=$(grep -c "✅" "$LOG_FILE" || echo 0)
+  FAIL_COUNT=$(grep -c "❌" "$LOG_FILE" || echo 0)
+  msg "  ── 模块安装统计 ──"
+  msg "    ✅ 成功模块: ${SUCCESS_COUNT}"
+  if [ "${FAIL_COUNT}" -gt 0 ]; then
+    msg "    ❌ 失败模块: ${FAIL_COUNT} (请检查日志)"
+  else
+    msg "    ✨ 所有模块均已成功执行"
+  fi
+  msg ""
+fi
+
 msg "  以下操作使所有配置生效:"
 msg ""
 

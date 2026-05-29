@@ -63,10 +63,10 @@ packages:
     is_gui: true
 
   docker:
-    darwin: docker
-    arch: docker
-    debian: docker-ce
-    redhat: docker-ce
+    darwin: docker docker-compose
+    arch: docker docker-compose
+    debian: docker-ce docker-compose-plugin
+    redhat: docker-ce docker-compose-plugin
     winget: Docker.DockerDesktop
     is_gui: true
 
