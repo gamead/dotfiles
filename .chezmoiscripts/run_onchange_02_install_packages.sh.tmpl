@@ -10,68 +10,98 @@ setup_traps "应用软件安装"
 init_env
 
 msg "=================================================="
-msg "开始批量安装应用软件: $(date)"
+msg "开始批量安装应用软件: \$(date)"
 msg "=================================================="
 
 # 1. 收集当前平台所需包
 PKGS=""
 GUI_PKGS="" # 用于macOS brew --cask特殊处理
-{{- range $name, $platforms := .packages }}
-  {{- $pkg := template "get_pkg_name" (dict "root" $ "item" $platforms) -}}
+{{- range \$name, \$platforms := .packages }}
+  {{- \$pkg := template "get_pkg_name" (dict "root" \$ "item" \$platforms) -}}
   
-  {{- if $pkg }}
-    {{- if and (eq $.os "darwin") (index $platforms "is_gui") }}
-      GUI_PKGS="$GUI_PKGS {{ $pkg }}"
-    {{- else if and $.is_wsl (index $platforms "winget") (index $platforms "is_gui") }}
+  {{- if \$pkg }}
+    {{- if and (eq $.os "darwin") (index \$platforms "is_gui") }}
+      GUI_PKGS="\$GUI_PKGS {{ \$pkg }}"
+    {{- else if and $.is_wsl (index \$platforms "winget") (index \$platforms "is_gui") }}
       # WSL 环境下的 GUI 软件，通过 winget 安装到 Windows 侧
-      msg ">>> [WSL] 正在通过 winget 安装 GUI 软件: {{ $pkg }}"
-      # 通过绝对路径调用 cmd.exe 以确保稳定性
-      /mnt/c/Windows/System32/cmd.exe /c "winget install --id '{{ $pkg }}' --silent --accept-source-agreements --accept-package-agreements" || msg "⚠️  WSL winget 安装 {{ $pkg }} 失败"
+      msg ">>> [WSL] 正在通过 winget 安装 GUI 软件: {{ \$pkg }}"
+      /mnt/c/Windows/System32/cmd.exe /c "winget install --id '{{ \$pkg }}' --silent --accept-source-agreements --accept-package-agreements" || msg "⚠️  WSL winget 安装 {{ \$pkg }} 失败"
     {{- else }}
       # 普通 CLI 软件或 Linux 原生 GUI 软件
-      PKGS="$PKGS {{ $pkg }}"
+      PKGS="\$PKGS {{ \$pkg }}"
     {{- end }}
   {{- end }}
 {{- end }}
 
 # 2. 批量执行安装
-{{- $cmd := "" -}}
-{{- if .is_arch }}{{ $cmd = .install_commands.arch }}
-{{- else if .is_debian }}{{ $cmd = .install_commands.debian }}
-{{- else if .is_redhat }}{{ $cmd = .install_commands.redhat }}
-{{- else if eq .os "darwin" }}{{ $cmd = .install_commands.darwin }}
+{{- \$cmd := "" -}}
+{{- if .is_arch }}{{ \$cmd = .install_commands.arch }}
+{{- else if .is_debian }}{{ \$cmd = .install_commands.debian }}
+{{- else if .is_redhat }}{{ \$cmd = .install_commands.redhat }}
+{{- else if eq .os "darwin" }}{{ \$cmd = .install_commands.darwin }}
 {{- end }}
 
-if [ -n "$(echo $PKGS | xargs)" ]; then
+if [ -n "\$(echo \$PKGS | xargs)" ]; then
   {{- if .is_debian }}
   wait_for_apt_lock
   {{- end }}
-  msg ">>> 正在执行安装命令: {{ $cmd }} $PKGS"
-  {{ $cmd }} $PKGS
+  msg ">>> 正在执行安装命令: {{ \$cmd }} \$PKGS"
+  {{ \$cmd }} \$PKGS
 fi
 
 {{- if eq .os "darwin" }}
-if [ -n "$GUI_PKGS" ]; then
-  msg ">>> 正在安装 GUI 软件: $GUI_PKGS"
-  {{ .install_commands.darwin_cask }} $GUI_PKGS
+if [ -n "\$GUI_PKGS" ]; then
+  msg ">>> 正在安装 GUI 软件: \$GUI_PKGS"
+  {{ .install_commands.darwin_cask }} \$GUI_PKGS
 fi
 {{- end }}
 
-# 3. GNOME 托盘扩展激活 (仅 Linux 桌面，且在安装之后执行)
+# 3. GNOME 扩展激活 (仅 Linux 桌面)
 {{- if and (eq .os "linux") (not .is_wsl) }}
   if command -v gsettings &>/dev/null && gsettings list-schemas | grep -q "org.gnome.shell"; then
-    msg ">>> 检查 GNOME 托盘扩展状态..."
-    UUID="appindicatorsupport@rgcjonas.gmail.com"
-    ENABLED=$(gsettings get org.gnome.shell enabled-extensions)
-    if [[ "$ENABLED" != *"$UUID"* ]]; then
-      msg ">>> 正在激活 GNOME 托盘扩展..."
-      if [[ "$ENABLED" == "@as []" ]] || [[ "$ENABLED" == "[]" ]]; then
-        gsettings set org.gnome.shell enabled-extensions "['$UUID']"
+    {{- range .gnome_settings.extensions }}
+    UUID="{{ . }}"
+    msg ">>> 检查 GNOME 扩展状态: \${UUID}..."
+    ENABLED=\$(gsettings get org.gnome.shell enabled-extensions)
+    if [[ "\$ENABLED" != *"\$UUID"* ]]; then
+      msg ">>> 正在激活 GNOME 扩展: \${UUID}..."
+      if [[ "\$ENABLED" == "@as []" ]] || [[ "\$ENABLED" == "[]" ]]; then
+        gsettings set org.gnome.shell enabled-extensions "['\$UUID']"
       else
-        gsettings set org.gnome.shell enabled-extensions "${ENABLED%]*}, '$UUID']"
+        gsettings set org.gnome.shell enabled-extensions "\${ENABLED%]*}, '\$UUID']"
       fi
     fi
+    {{- end }}
   fi
+{{- end }}
+
+# 4. 执行 Post-Install Hooks (数据驱动型 - 简单命令)
+msg ">>> 检查并执行软件初始化 Hook..."
+{{- \$all_requested_pkgs := "" }}
+{{- range \$name, \$platforms := .infrastructure }}{{ \$all_requested_pkgs = printf "%s %s" \$all_requested_pkgs \$name }}{{ end }}
+{{- range \$name, \$platforms := .packages }}{{ \$all_requested_pkgs = printf "%s %s" \$all_requested_pkgs \$name }}{{ end }}
+
+{{- range \$pkg_name, \$handler := .package_handlers }}
+  {{- if index \$handler "post_install" }}
+    if echo "{{ \$all_requested_pkgs }}" | grep -q "\b{{ \$pkg_name }}\b"; then
+       msg "    执行 {{ \$pkg_name }} 的初始化命令..."
+       {{ \$handler.post_install }}
+    fi
+  {{- end }}
+{{- end }}
+
+# 5. 执行【应用软件包】分类 Hook (插件化引擎)
+# 扫描目录: .chezmoitemplates/hooks/packages/<包名>.sh
+{{- \$hooks_base := "hooks/packages" }}
+{{- range \$pkg_name, \$unused := .packages }}
+  {{- \$hook_rel_path := printf "%s/%s.sh" \$hooks_base \$pkg_name }}
+  {{- \$hook_full_path := joinPath .chezmoi.sourceDir ".chezmoitemplates" \$hook_rel_path }}
+  {{- if stat \$hook_full_path }}
+    if echo "{{ \$all_requested_pkgs }}" | grep -q "\b{{ \$pkg_name }}\b"; then
+       msg ">>> 发现应用 Hook 插件: {{ \$pkg_name }}，正在执行..."
+       {{ tpl (include (printf ".chezmoitemplates/%s" \$hook_rel_path)) \$ }}
+    fi
+  {{- end }}
 {{- end }}
 
 msg ">>> 所有应用软件安装完成。"

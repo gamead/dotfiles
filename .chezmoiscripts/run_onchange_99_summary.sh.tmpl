@@ -9,6 +9,11 @@ set -euo pipefail
 # 汇总脚本不使用标准 trap，仅初始化环境
 init_env
 
+# 收集请求安装的所有包名 (用于条件显示)
+{{- $all_requested_pkgs := "" }}
+{{- range $name, $platforms := .infrastructure }}{{ $all_requested_pkgs = printf "%s %s" $all_requested_pkgs $name }}{{ end }}
+{{- range $name, $platforms := .packages }}{{ $all_requested_pkgs = printf "%s %s" $all_requested_pkgs $name }}{{ end }}
+
 msg ""
 msg "=============================================="
 msg "  ✅  🎉  全 部 配 置 完 成 ！"
@@ -48,7 +53,8 @@ if command -v mise &>/dev/null; then
   msg ""
 fi
 
-# ── Docker ──────────────────────────────────────
+# ── Docker (仅当请求安装了 docker 时显示) ───────────
+{{- if contains "docker" $all_requested_pkgs }}
 if groups "$USER" 2>/dev/null | grep -q "\bdocker\b"; then
   msg "  ── Docker 权限 ──"
   msg "    当前用户已在 docker 组中"
@@ -56,17 +62,24 @@ if groups "$USER" 2>/dev/null | grep -q "\bdocker\b"; then
   msg "    永久生效:  注销并重新登录"
   msg ""
 fi
+{{- end }}
 
-# ── GNOME 扩展 ──────────────────────────────────
+# ── GNOME 扩展 (根据配置列表动态显示) ───────────────
+{{- if .gnome_settings.extensions }}
 if command -v gsettings &>/dev/null; then
-  GNOME_EXT=$(gsettings get org.gnome.shell enabled-extensions 2>/dev/null || true)
-  if echo "$GNOME_EXT" | grep -q "appindicatorsupport@rgcjonas.gmail.com"; then
-    msg "  ── GNOME 托盘扩展 ──"
-    msg "    已启用 AppIndicator"
-    msg "    注销并重新登录后生效"
-    msg ""
+  msg "  ── GNOME 扩展状态 ──"
+  {{- range .gnome_settings.extensions }}
+  UUID="{{ . }}"
+  if gsettings get org.gnome.shell enabled-extensions 2>/dev/null | grep -q "$UUID"; then
+    msg "    ✅ 已激活: $UUID"
+  else
+    msg "    ⚠️  待手动激活: $UUID"
   fi
+  {{- end }}
+  msg "    注销并重新登录后生效"
+  msg ""
 fi
+{{- end }}
 
 # ── 镜像 / 包管理器 ──────────────────────────────
 HAS_PACMAN=$(command -v pacman &>/dev/null && echo 1 || echo 0)

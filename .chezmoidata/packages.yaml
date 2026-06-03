@@ -1,26 +1,25 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  数据驱动的包管理配置
-#  修改此文件将自动触发 chezmoi 重新运行对应的安装脚本
+#  数据驱动的包管理配置 (核心数据中心)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# ── 1. 基础设施 ──────────────────────────────────
-# 必须最先安装并运行的服务和元工具
+# ── 0. 系统镜像源 (用于 00_mirrors 脚本测速) ────────────────
+mirrors:
+  - https://mirrors.tuna.tsinghua.edu.cn
+  - https://mirrors.aliyun.com
+  - https://mirrors.ustc.edu.cn
+
+# ── 1. 基础设施包 (确保环境运行的基础工具) ──────────────────
 infrastructure:
-  # 元工具 (确保脚本逻辑运行的基础)
   curl:     { common: curl }
   git:      { common: git }
   wget:     { common: wget }
-  
-  # 核心服务
   v2raya:
     arch: v2raya xray
     debian: v2raya
     redhat: v2raya
     darwin: v2raya/v2raya/v2raya
-    winget: m-creations.v2raya
 
-# ── 2. 安装指令 definition ──────────────────────────────────
-# 定义不同平台/包管理器的安装前缀
+# ── 2. 安装指令定义 ──────────────────────────────────
 install_commands:
   darwin: "brew install"
   darwin_cask: "brew install --cask"
@@ -29,18 +28,8 @@ install_commands:
   redhat: "sudo dnf install -y"
   winget: "winget install --silent --accept-source-agreements --accept-package-agreements"
 
-# ── 3. 通用软件包清单 ──────────────────────────────
-# 此时安装脚本已经具备了 curl/git 等基础环境
+# ── 3. 软件包清单 ──────────────────────────────
 packages:
-  # --- 基础工具 ---
-  # git, curl, wget 已移至 infrastructure
-  # jq:       { common: jq }
-  # tree:     { common: tree }
-
-  # htop:     { common: htop }
-  # tmux:     { common: tmux }
-
-  # --- 输入法组件 (仅在 Linux 桌面有效) ---
   fcitx5:
     arch: fcitx5-im fcitx5-chinese-addons fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
     debian: fcitx5-im fcitx5-chinese-addons fcitx5-rime rime-ice fcitx5-pinyin-zhwiki fcitx5-material-color
@@ -53,7 +42,6 @@ packages:
     redhat: gnome-shell-extension-appindicator
     is_gui: true
 
-  # --- 常用软件 ---
   vscode:
     darwin: visual-studio-code
     arch: visual-studio-code-bin
@@ -76,3 +64,50 @@ packages:
     debian: google-chrome-stable
     winget: Google.Chrome
     is_gui: true
+
+# ── 4. 特殊配置数据 ──────────────────────────────────
+
+# GNOME 扩展配置
+gnome_settings:
+  extensions:
+    - appindicatorsupport@rgcjonas.gmail.com
+
+# Docker 镜像加速与组配置
+docker_settings:
+  mirrors:
+    - https://docker.m.daocloud.io
+    - https://mirror.baidubce.com
+    - https://ccr.ccs.tencentyun.com
+  add_user_to_group: true
+
+# v2rayA 特殊配置
+v2raya_settings:
+  port: 2017
+  config:
+    transparent: "whitelist"
+    transparent_type: "tproxy"
+    ipforward: true
+    rule_port_mode: "whitelist"
+
+# ── 5. 第三方仓库处理器 (Handler Engine) ──────────────
+# 脚本 01 将读取此配置，自动处理仓库添加逻辑
+package_handlers:
+  docker:
+    debian:
+      key_url: "https://download.docker.com/linux/debian/gpg"
+      key_path: "/etc/apt/keyrings/docker.gpg"
+      source: "deb [arch=ARCH signed-by=KEYRING] https://download.docker.com/linux/debian CODENAME stable"
+    redhat:
+      repo_url: "https://download.docker.com/linux/fedora/docker-ce.repo"
+    post_install: "run_sudo systemctl enable --now docker"
+  vscode:
+    debian:
+      key_url: "https://packages.microsoft.com/keys/microsoft.asc"
+      key_path: "/etc/apt/keyrings/microsoft-archive-keyring.gpg"
+      source: "deb [arch=amd64,arm64,armhf signed-by=KEYRING] https://packages.microsoft.com/repos/code stable main"
+    redhat:
+      repo_url: "https://packages.microsoft.com/yumrepos/vscode"
+      repo_name: "code"
+      key_url: "https://packages.microsoft.com/keys/microsoft.asc"
+  v2raya:
+    post_install: "run_sudo systemctl enable --now v2raya"

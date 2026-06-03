@@ -9,11 +9,11 @@ set -euo pipefail
 # ── 配置 ───────────────────────────────────────────
 MANAGED_TAG="__managed_by_envit__"
 
-# 候选镜像列表
+# 候选镜像列表 (从 packages.yaml 动态读取)
 MIRRORS=(
-  "https://mirrors.tuna.tsinghua.edu.cn"
-  "https://mirrors.aliyun.com"
-  "https://mirrors.ustc.edu.cn"
+{{- range .mirrors }}
+  {{ . | quote }}
+{{- end }}
 )
 
 # ── 退出处理 ───────────────────────────────────

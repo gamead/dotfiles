@@ -23,6 +23,54 @@ run_sudo() {
   fi
 }
 
+# ── 第三方仓库处理器 (通用引擎) ────────────────────────
+# 处理 Debian/Ubuntu 仓库
+setup_debian_repo() {
+  local name=$1 key_url=$2 key_path=$3 source=$4
+  msg ">>> 正在配置 ${name} 仓库..."
+  wait_for_apt_lock
+  
+  # 确保必要的工具已安装 (用于处理 key)
+  run_sudo apt-get update -yq
+  run_sudo apt-get install -yq ca-certificates curl gnupg
+  
+  run_sudo install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL "$key_url" | run_sudo gpg --dearmor --yes -o "$key_path"
+  run_sudo chmod a+r "$key_path"
+  
+  # 处理占位符 (ARCH, KEYRING, CODENAME)
+  local arch
+  arch=$(dpkg --print-architecture)
+  local codename
+  codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+  
+  local final_source
+  final_source=$(echo "$source" | sed "s|ARCH|$arch|g; s|KEYRING|$key_path|g; s|CODENAME|$codename|g")
+  
+  echo "$final_source" | run_sudo tee "/etc/apt/sources.list.d/${name}.list" > /dev/null
+  run_sudo apt-get update -yq
+}
+
+# 处理 RedHat/Fedora 仓库
+setup_redhat_repo() {
+  local name=$1 repo_url=$2 key_url=$3
+  msg ">>> 正在配置 ${name} 仓库..."
+  
+  if command -v dnf &>/dev/null; then
+    run_sudo dnf config-manager --add-repo "$repo_url" || {
+      run_sudo curl -fsSL "$repo_url" -o "/etc/yum.repos.d/${name}.repo"
+    }
+    [ -z "$key_url" ] || run_sudo rpm --import "$key_url"
+    run_sudo dnf makecache
+  else
+    run_sudo yum-config-manager --add-repo "$repo_url" || {
+      run_sudo curl -fsSL "$repo_url" -o "/etc/yum.repos.d/${name}.repo"
+    }
+    [ -z "$key_url" ] || run_sudo rpm --import "$key_url"
+    run_sudo yum makecache
+  fi
+}
+
 # ── 等待 APT 锁 ───────────────────────────────────
 # 解决 Debian 系自动更新导致的锁竞争
 wait_for_apt_lock() {
